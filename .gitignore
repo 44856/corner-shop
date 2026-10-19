@@ -1,0 +1,17 @@
+# Godot 4+ specific ignores
+.godot/
+/android/
+export/
+build/
+
+# Godot 引擎本体与压缩包（体积过大，不入库）
+Godot_v*-stable_linux.x86_64
+Godot_v*.zip
+*.exe
+
+# 工作区/助手数据
+.workbuddy/
+
+# 系统文件
+.DS_Store
+Thumbs.db
