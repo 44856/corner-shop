@@ -9,6 +9,8 @@ const Props := preload("res://scripts/props.gd")
 const K := preload("res://scripts/kit.gd")
 const RAIN_SHADER := preload("res://shaders/rain_particles.gdshader")
 const RIPPLE_SHADER := preload("res://shaders/rain_ripple.gdshader")
+const Actor := preload("res://scripts/actor.gd")
+const Cutscene := preload("res://scripts/cutscene.gd")
 
 var yaw := deg_to_rad(26.0)
 var pitch := deg_to_rad(14.5)
@@ -22,6 +24,15 @@ var _target_t := target
 
 var cam: Camera3D
 
+## 画面倾斜（弧度）。开场动画在穿越那一段会把它推向一个角度，做出"世界歪了"的感觉。
+var roll := 0.0
+
+# 给开场动画留的引用（cutscene.gd 要控制灯光、环境、角色和雨）
+var _env: Environment
+var _moon: DirectionalLight3D
+var _fill: DirectionalLight3D
+var _actor: Node3D
+
 
 func _ready() -> void:
 	_setup_environment()
@@ -32,9 +43,20 @@ func _ready() -> void:
 	_setup_camera()
 	_setup_rain()
 	_setup_rain_ripples()
+	_setup_actors()
 
 	if "--shot" in OS.get_cmdline_user_args():
 		_take_shots()
+	else:
+		_start_cutscene()
+
+
+## 播开场剧情动画
+func _start_cutscene() -> void:
+	var cs := Cutscene.new()
+	add_child(cs)
+	cs.setup(self, _actor)
+	cs.play()
 
 
 # ---------------------------------------------------------------- 环境
@@ -103,6 +125,7 @@ func _setup_environment() -> void:
 	var we := WorldEnvironment.new()
 	we.environment = env
 	add_child(we)
+	_env = env
 
 
 func _setup_lights() -> void:
@@ -117,6 +140,7 @@ func _setup_lights() -> void:
 	moon.shadow_bias = 0.02
 	moon.light_specular = 0.4
 	add_child(moon)
+	_moon = moon
 
 	# 冷色补光，勾出模型边缘
 	var fill := DirectionalLight3D.new()
@@ -125,6 +149,7 @@ func _setup_lights() -> void:
 	fill.rotation_degrees = Vector3(-24, -132, 0)
 	fill.light_specular = 0.0
 	add_child(fill)
+	_fill = fill
 
 
 # ---------------------------------------------------------------- 相机
@@ -154,6 +179,9 @@ func _update_camera(delta: float) -> void:
 	var dir := Vector3(cos(pitch) * sin(yaw), sin(pitch), cos(pitch) * cos(yaw))
 	cam.position = target + dir * dist
 	cam.look_at(target, Vector3.UP)
+	# look_at 会重置朝向，所以倾斜要放在它之后，绕相机自身视线轴转
+	if roll != 0.0:
+		cam.rotate_object_local(Vector3(0.0, 0.0, 1.0), roll)
 
 
 func _process(delta: float) -> void:
@@ -186,6 +214,21 @@ func _unhandled_input(event: InputEvent) -> void:
 			_pitch_t = deg_to_rad(14.5)
 			_dist_t = 17.0
 			_target_t = Vector3(0.0, 1.2, -0.95)
+
+
+# ---------------------------------------------------------------- 角色
+
+func _setup_actors() -> void:
+	# 主角站在便利店雨棚下（z=-0.2 在雨棚干燥区里），面朝马路（+Z），
+	# 抱头准备了一下就往雨里冲出去。y=0.16 是人行道高度。
+	var a := Actor.new()
+	a.position = Vector3(0.7, 0.16, -0.2)
+	a.face_yaw_deg = 0.0        # 0 = 模型正面朝 +Z，也就是面向马路
+	a.pose = "cover_head"
+	a.dash_distance = 2.8
+	a.dash_delay = -1.0        # 不自跑，由开场动画在正确时机触发
+	add_child(a)
+	_actor = a
 
 
 # ---------------------------------------------------------------- 雨
