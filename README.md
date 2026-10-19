@@ -30,7 +30,7 @@
 scenes/main.tscn        场景入口（仅挂载 main.gd）
 scripts/main.gd         环境、灯光、轨道相机、雨、截图调试
 scripts/kit.gd          建模工具库：体块、圆柱、管线、拉杆、文字、材质缓存
-scripts/street.gd       底座 / 人行道 / 马路 / 标线 / 电线杆 / 路灯 / 街角设施 / 水洼
+scripts/street.gd       底座 / 人行道 / 马路 / 标线 / 电线杆 / 路灯 / 街角设施 / 湿地面光池
 scripts/store.gd        便利店：外壳 / 玻璃立面 / 自动门 / 雨棚 / 招牌 / 屋顶 / 店内
 scripts/props.gd        道具：贩卖机 / 自行车 / 伞架 / 垃圾桶 / 后巷 / 猫
 shaders/toon.gdshader   三渲二主材质（硬边分层 + 冷色边缘光）
@@ -40,6 +40,8 @@ shaders/glass.gdshader  玻璃（染色 + 边缘反光）
 shaders/glow.gdshader   自发光面板（招牌 / 灯箱 / 霓虹）
 shaders/wet_glow.gdshader 湿地面柔光池
 shaders/soft_glow.gdshader 灯头光晕
+shaders/rain_particles.gdshader 雨滴粒子（按表面高度截断）
+shaders/rain_ripple.gdshader 雨滴落点涟漪
 ```
 
 ## 美术要点
@@ -47,7 +49,8 @@ shaders/soft_glow.gdshader 灯头光晕
 - **三渲二**：`toon.gdshader` 用自定义 `light()` 把 N·L 量化成两档硬边，暗部保留 35%–55% 亮度，再叠一层菲涅尔冷色边缘光；所有物体通过 `next_pass` 做反向外壳描边。
 - **夜景层次**：冷蓝月光 + 店内暖光 + 招牌/灯箱自发光 + 粉紫霓虹（后巷 BAR），配合泛光（glow）与湿地面光池，形成冷—暖—霓虹三层色彩关系。
 - **微缩模型感**：11.2 × 11.2 正方形底座，深色石材台座 + 黄铜腰线 + 正面铭牌；相机 40° 长焦、低俯角，Forward+ 下附带轻微景深（移轴感）。
-- **雨**：GPUParticles3D 竖向细长面片 + 加色混合，配合雾与地面反光；雨量、长度、透明度在 `main.gd` 的 `_setup_rain()` 里调整。
+- **雨**：`rain_particles.gdshader` 自己算雨滴下落，每帧按 xz 采样「该列最高的可接雨表面」（马路 0.0 / 人行道 0.16 / 后巷 0.19 / 雨棚 2.66 / 屋面 3.71），落到面上就回收重发——雨丝不会穿过雨棚和屋顶继续往下掉。面片挂在粒子位置上方，触面时刚好收在地表。
+- **涟漪**：`rain_ripple.gdshader` 按世界坐标切网格、每格随机相位画扩散圆环，铺在马路、门前人行道、后巷与屋面上；加色混合 + 关闭深度写入，不和标线、光池打架；雨棚正下方用 `dry_min/dry_max` 裁掉，保持干燥。
 
 ## 常用调节点
 
