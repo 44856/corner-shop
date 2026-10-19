@@ -202,7 +202,7 @@ func _setup_rain() -> void:
 	# 自定义粒子着色器：按表面高度截断，雨点不会穿过雨棚与屋面
 	var pm := ShaderMaterial.new()
 	pm.shader = RAIN_SHADER
-	pm.set_shader_parameter("area_half", 5.75)
+	pm.set_shader_parameter("area_half", 5.5)
 	pm.set_shader_parameter("top_y", 10.4)
 	p.process_material = pm
 
