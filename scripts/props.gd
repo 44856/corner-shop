@@ -126,7 +126,8 @@ static func _bicycle(g: Node3D, pos: Vector3, rot_y: float) -> void:
 	K.strut(b, Vector3(0, 0.88, 0.4), Vector3(0.24, 0.9, 0.36), 0.016, chrome, 6)
 	K.strut(b, Vector3(0, 0.88, 0.4), Vector3(-0.24, 0.9, 0.36), 0.016, chrome, 6)
 	K.box(b, Vector3(0.1, 0.05, 0.26), Vector3(0, 0.81, -0.14), dark)
-	# 车筐架在前轮上方，不压轮胎
+	# 车筐架在前轮上方，不压轮胎；下面加一块托板免得悬空
+	K.box(b, Vector3(0.28, 0.025, 0.28), Vector3(0, 0.652, 0.56), dark)
 	K.box(b, Vector3(0.3, 0.22, 0.3), Vector3(0, 0.76, 0.56), K.toon(Color("#646a71"), {"shade": 0.55, "rim": 0.3, "line": 0.004}))
 	K.box(b, Vector3(0.22, 0.15, 0.2), Vector3(0, 0.77, 0.56), K.toon(Color("#3b4149"), {"line": 0.0}))
 	K.cyl(b, 0.05, 0.04, bb, chrome, Vector3(0, 0, 90), 8)
