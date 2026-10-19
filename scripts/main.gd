@@ -7,6 +7,8 @@ const Street := preload("res://scripts/street.gd")
 const Store := preload("res://scripts/store.gd")
 const Props := preload("res://scripts/props.gd")
 const K := preload("res://scripts/kit.gd")
+const RAIN_SHADER := preload("res://shaders/rain_particles.gdshader")
+const RIPPLE_SHADER := preload("res://shaders/rain_ripple.gdshader")
 
 var yaw := deg_to_rad(26.0)
 var pitch := deg_to_rad(14.5)
@@ -29,6 +31,7 @@ func _ready() -> void:
 	_setup_lights()
 	_setup_camera()
 	_setup_rain()
+	_setup_rain_ripples()
 
 	if "--shot" in OS.get_cmdline_user_args():
 		_take_shots()
@@ -191,26 +194,22 @@ func _setup_rain() -> void:
 	var p := GPUParticles3D.new()
 	p.name = "Rain"
 	p.amount = 2400
-	p.lifetime = 1.7
-	p.preprocess = 1.6
-	p.fixed_fps = 30
-	p.visibility_aabb = AABB(Vector3(-8, -2, -8), Vector3(16, 14, 16))
+	p.lifetime = 2.4
+	p.preprocess = 2.2
+	p.fixed_fps = 60
+	p.visibility_aabb = AABB(Vector3(-7.5, -9.0, -7.5), Vector3(15.0, 20.0, 15.0))
 
-	var pm := ParticleProcessMaterial.new()
-	pm.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
-	pm.emission_box_extents = Vector3(5.4, 0.3, 5.4)
-	pm.direction = Vector3(0.14, -1.0, 0.06)
-	pm.spread = 2.5
-	pm.initial_velocity_min = 12.0
-	pm.initial_velocity_max = 16.0
-	pm.gravity = Vector3(0, -9.8, 0)
-	pm.scale_min = 0.9
-	pm.scale_max = 1.5
-	pm.color = Color(0.75, 0.85, 1.0, 1.0)
+	# 自定义粒子着色器：按表面高度截断，雨点不会穿过雨棚与屋面
+	var pm := ShaderMaterial.new()
+	pm.shader = RAIN_SHADER
+	pm.set_shader_parameter("area_half", 5.75)
+	pm.set_shader_parameter("top_y", 10.4)
 	p.process_material = pm
 
 	var quad := QuadMesh.new()
 	quad.size = Vector2(0.011, 0.3)
+	# 把面片整体挂在粒子位置的上方，触面时雨丝不会戳穿地表
+	quad.center_offset = Vector3(0.0, 0.15, 0.0)
 	var m := StandardMaterial3D.new()
 	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
@@ -220,8 +219,39 @@ func _setup_rain() -> void:
 	m.disable_receive_shadows = true
 	quad.material = m
 	p.draw_pass_1 = quad
-	p.position = Vector3(0, 9.5, 0)
 	add_child(p)
+
+
+func _setup_rain_ripples() -> void:
+	# 雨滴落在水平面上产生的扩散涟漪：马路 / 门前人行道 / 后巷 / 屋面
+	var surfaces := [
+		{"pos": Vector3(0.0, 0.007, 0.0), "size": Vector2(11.2, 11.2), "strength": 0.36, "dry": false},
+		{"pos": Vector3(1.85, 0.168, 0.5), "size": Vector2(7.5, 2.8), "strength": 0.26, "dry": true},
+		{"pos": Vector3(4.28, 0.196, -3.2), "size": Vector2(2.3, 4.5), "strength": 0.24, "dry": false},
+		{"pos": Vector3(0.7, 3.712, -3.2), "size": Vector2(4.8, 4.6), "strength": 0.3, "dry": false},
+	]
+
+	var grp := Node3D.new()
+	grp.name = "RainRipples"
+	add_child(grp)
+
+	for s in surfaces:
+		var mi := MeshInstance3D.new()
+		var pm := PlaneMesh.new()
+		pm.size = s["size"]
+		mi.mesh = pm
+		mi.position = s["pos"]
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+		var mat := ShaderMaterial.new()
+		mat.shader = RIPPLE_SHADER
+		mat.set_shader_parameter("strength", s["strength"])
+		if s["dry"]:
+			# 雨棚正下方是干的
+			mat.set_shader_parameter("dry_min", Vector2(-1.76, -0.96))
+			mat.set_shader_parameter("dry_max", Vector2(3.16, 0.2))
+		mi.material_override = mat
+		grp.add_child(mi)
 
 
 

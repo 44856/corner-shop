@@ -106,7 +106,8 @@ static func _bicycle(g: Node3D, pos: Vector3, rot_y: float) -> void:
 
 	for hub_v in [rear, front]:
 		var hub: Vector3 = hub_v
-		K.torus(b, 0.235, 0.315, hub, dark, Vector3(0, 90, 0), false)
+		# 轮圈立在 YZ 平面（绕 Z 转 90°），绕 Y 转会留在水平面
+		K.torus(b, 0.235, 0.315, hub, dark, Vector3(0, 0, 90), false)
 		K.sphere(b, 0.035, hub, chrome, Vector3.ZERO, 8, 1.0, false)
 		for s in 3:
 			var ang := TAU * float(s) / 3.0 + 0.4
@@ -125,13 +126,16 @@ static func _bicycle(g: Node3D, pos: Vector3, rot_y: float) -> void:
 	K.strut(b, Vector3(0, 0.88, 0.4), Vector3(0.24, 0.9, 0.36), 0.016, chrome, 6)
 	K.strut(b, Vector3(0, 0.88, 0.4), Vector3(-0.24, 0.9, 0.36), 0.016, chrome, 6)
 	K.box(b, Vector3(0.1, 0.05, 0.26), Vector3(0, 0.81, -0.14), dark)
-	K.box(b, Vector3(0.3, 0.22, 0.3), Vector3(0, 0.68, 0.56), K.toon(Color("#646a71"), {"shade": 0.55, "rim": 0.3, "line": 0.004}))
-	K.box(b, Vector3(0.22, 0.15, 0.2), Vector3(0, 0.69, 0.56), K.toon(Color("#3b4149"), {"line": 0.0}))
+	# 车筐架在前轮上方，不压轮胎
+	K.box(b, Vector3(0.3, 0.22, 0.3), Vector3(0, 0.76, 0.56), K.toon(Color("#646a71"), {"shade": 0.55, "rim": 0.3, "line": 0.004}))
+	K.box(b, Vector3(0.22, 0.15, 0.2), Vector3(0, 0.77, 0.56), K.toon(Color("#3b4149"), {"line": 0.0}))
 	K.cyl(b, 0.05, 0.04, bb, chrome, Vector3(0, 0, 90), 8)
-	K.box(b, Vector3(0.02, 0.28, 0.02), bb + Vector3(0.07, 0.02, 0.06), dark)
+	# 撑脚落到地面
+	K.strut(b, bb + Vector3(0.06, -0.02, 0.06), Vector3(0.17, 0.0, 0.22), 0.011, dark, 6)
 	K.box(b, Vector3(0.03, 0.02, 0.42), Vector3(0, 0.3, -0.3), dark, Vector3.ZERO, false)
-	K.box(b, Vector3(0.07, 0.02, 0.3), rear + Vector3(0, 0.29, 0.02), dark)
-	K.box(b, Vector3(0.07, 0.02, 0.3), front + Vector3(0, 0.29, -0.02), dark)
+	# 挡泥板压在轮胎上方
+	K.box(b, Vector3(0.06, 0.02, 0.34), rear + Vector3(0, 0.345, 0.02), dark)
+	K.box(b, Vector3(0.06, 0.02, 0.34), front + Vector3(0, 0.345, -0.02), dark)
 	K.sphere(b, 0.035, Vector3(0, 0.62, 0.72), K.glow(Color("#ffe9b8"), 1.2), Vector3.ZERO, 8, 1.0, false)
 
 
