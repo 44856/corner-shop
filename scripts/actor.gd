@@ -11,6 +11,28 @@ extends Node3D
 
 const TOON_TEX := preload("res://shaders/toon_tex.gdshader")
 const OUTLINE := preload("res://shaders/outline.gdshader")
+const K := preload("res://scripts/kit.gd")
+
+## 平涂取色表：按 surface 原材质名做「包含匹配」，从上往下第一个命中的生效。
+##
+## VRoid 的材质名长这样（实测自 gaia.glb）：
+##   N00_000_00_Body_00_SKIN / N00_005_01_Tops_01_CLOTH / N00_000_00_EyeIris_00_EYE
+## 所以用关键字匹配比精确名可靠，换一套衣服也不会全部掉到兜底色。
+const FLAT_COLORS := [
+	["FaceMouth", Color("#2a2a33")],
+	["FaceBrow", Color("#2a2a33")],
+	["FaceEyeline", Color("#2a2a33")],
+	["EyeIris", Color("#6f8fb8")],
+	["EyeWhite", Color("#f0f0f2")],
+	["EyeHighlight", Color("#f0f0f2")],   # 高光跟眼白同色，否则是一颗灰点
+	["Face_00_SKIN", Color("#e8c4a8")],
+	["Body_00_SKIN", Color("#e8c4a8")],
+	["Hair", Color("#3a3f52")],
+	["CLOTH", Color("#4a5568")],
+]
+const FLAT_FALLBACK := Color("#808080")
+## 平涂模式的暗部下限。比夜景用的 0.38 亮，白天太暗会显得脏。
+const FLAT_SHADE := 0.55
 
 ## 模型路径
 @export_file("*.glb") var model_path := "res://assets/characters/gaia.glb"
@@ -24,6 +46,10 @@ const OUTLINE := preload("res://shaders/outline.gdshader")
 
 ## 描边厚度，0 = 不描边
 @export_range(0.0, 0.03) var outline_width := 0.006
+
+## true = 不加载 VRM 贴图，改用 kit.toon() 上纯色平涂（异世界草原用）。
+## 默认 false：雨夜练手场景已经按贴图版验收过，不能因为加了这个开关就变样。
+@export var use_flat_colors := false
 
 ## 整体色调与亮度。VRoid 的贴图亮度接近 0.5，而这个夜景里建筑 albedo 只有 0.3~0.5，
 ## 不压暗的话角色会是全场最亮的物体。乘到贴图上，同时偏冷以匹配月光。
@@ -154,14 +180,83 @@ func _set_rot(bone: String, q: Quaternion) -> void:
 	_skel.set_bone_pose_rotation(idx, q)
 
 
-## 按 surface 重建带贴图的三渲二材质
+# ---------------------------------------------------------------- 程序化移动动画
+##
+## gaia.glb 里没有任何动画剪辑（animations 数量为 0，连 AnimationPlayer 都没有），
+## 所以走路摆臂摆腿只能直接驱动骨骼。
+##
+## 轴向是实测出来的，不是猜的：
+##   大腿 / 小腿  绕本地 X 轴 → 前后摆（正角 = 向后；绕 Z 是侧摆 dx=0.42）
+##   上臂        绕本地 Y 轴 → 前后摆（绕 X 位移 0.000，纯粹是沿骨长扭转）
+##
+## phase 是步态相位（弧度），amount 是幅度 0..1。
+## 调用方按「速度 × 时间」推进 phase —— 走得快步频自然变高，不用另设参数。
+
+func set_locomotion(phase: float, amount: float) -> void:
+	if _skel == null or pose != "stand":
+		return
+	var a := clampf(amount, 0.0, 1.0)
+	var swing := sin(phase)
+	var r := Vector3(1.0, 0.0, 0.0)
+	var y := Vector3(0.0, 1.0, 0.0)
+	var z := Vector3(0.0, 0.0, 1.0)
+
+	# 大腿：左右反相。0.50 rad ≈ 28°，接近真人行走的摆幅
+	_set_rot("J_Bip_L_UpperLeg", Quaternion(r, swing * 0.50 * a))
+	_set_rot("J_Bip_R_UpperLeg", Quaternion(r, -swing * 0.50 * a))
+
+	# 膝盖只能向后弯（正角）。在腿往后回摆的阶段弯得最多，
+	# 前摆时接近伸直 —— 这是走和「原地蹬腿」的区别所在
+	_set_rot("J_Bip_L_LowerLeg", Quaternion(r, maxf(0.0, -swing + 0.25) * 0.85 * a))
+	_set_rot("J_Bip_R_LowerLeg", Quaternion(r, maxf(0.0, swing + 0.25) * 0.85 * a))
+
+	# 上臂：与同侧腿反相（左腿前 → 左臂后），基础姿势是「手臂放下」
+	_set_rot("J_Bip_L_UpperArm",
+		Quaternion(z, -arm_drop) * Quaternion(y, -swing * 0.38 * a))
+	_set_rot("J_Bip_R_UpperArm",
+		Quaternion(z, arm_drop) * Quaternion(y, swing * 0.38 * a))
+
+	# 前臂保持一点预弯，完全笔直会显得僵硬
+	_set_rot("J_Bip_L_LowerArm", Quaternion(z, -0.14))
+	_set_rot("J_Bip_R_LowerArm", Quaternion(z, 0.14))
+
+
+## 空中姿势：收腿 + 手臂略微抬起。
+## 不做的话跳跃时腿完全伸直，一眼就看得出「没有动画」。
+func set_air_pose() -> void:
+	if _skel == null or pose != "stand":
+		return
+	var r := Vector3(1.0, 0.0, 0.0)
+	var z := Vector3(0.0, 0.0, 1.0)
+	# 大腿负角 = 向前抬
+	_set_rot("J_Bip_L_UpperLeg", Quaternion(r, -0.45))
+	_set_rot("J_Bip_R_UpperLeg", Quaternion(r, -0.18))
+	_set_rot("J_Bip_L_LowerLeg", Quaternion(r, 0.80))
+	_set_rot("J_Bip_R_LowerLeg", Quaternion(r, 0.35))
+	_set_rot("J_Bip_L_UpperArm",
+		Quaternion(z, -arm_drop) * Quaternion(r, -0.30))
+	_set_rot("J_Bip_R_UpperArm",
+		Quaternion(z, arm_drop) * Quaternion(r, -0.30))
+
+
+## 按 surface 重建材质。
+## use_flat_colors = true 走平涂分支（kit.toon 纯色 + 描边），否则走原来的贴图分支。
 func _apply_toon(n: Node) -> void:
-	for mi in _find_all(n, "MeshInstance3D"):
+	for node in _find_all(n, "MeshInstance3D"):
+		var mi := node as MeshInstance3D
 		var mesh: Mesh = mi.mesh
 		if mesh == null:
 			continue
 		for i in mesh.get_surface_count():
 			var src := mesh.surface_get_material(i) as BaseMaterial3D
+			if use_flat_colors:
+				mi.set_surface_override_material(i, K.toon(_flat_color(src), {
+					"line": outline_width,
+					"shade": FLAT_SHADE,
+					"rim": 0.12,
+				}))
+				continue
+
 			var m := ShaderMaterial.new()
 			m.shader = TOON_TEX
 			if src != null:
@@ -179,6 +274,23 @@ func _apply_toon(n: Node) -> void:
 				om.set_shader_parameter("line_color", Color(0.045, 0.05, 0.075))
 				m.next_pass = om
 			mi.set_surface_override_material(i, m)
+
+
+## 按材质名关键字平涂取色，未命中用兜底灰
+func _flat_color(src: BaseMaterial3D) -> Color:
+	if src == null:
+		return FLAT_FALLBACK
+	var nm := src.resource_name
+	for pair in FLAT_COLORS:
+		if nm.contains(pair[0]):
+			return pair[1]
+	return FLAT_FALLBACK
+
+
+## 模型根节点（glb 实例）。外部做姿势补间用，比如「躺在地上 → 站起来」。
+## 注意别拿自己去补间：CharacterBody3D 的 transform 归物理管。
+func get_model_node() -> Node3D:
+	return _model
 
 
 func _find_first(n: Node, cls: String) -> Node:
