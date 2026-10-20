@@ -1,14 +1,22 @@
 extends Node3D
-## 异世界草原 —— 穿越后醒来的第一个场景
+## 异世界平原 —— 穿越后醒来的第一个场景
 ##
 ## 和 scenes/main.tscn（雨夜便利店）没有任何关系：独立的天空、光照、地形。
 ## 本工程不在编辑器里摆节点，所以这里一切都是运行时生成的：
-## 天空 / 太阳 / 400m 草原 / 远景缓丘 / 玩家 / 狗。
+## 天空 / 太阳 / 土路平原 / 城镇地面 / 远山 / 玩家 / 狗。
+##
+## 地形这一版不再有草：整片大地都是脚下那种压实的土路。
+## 一条路从脚下一路铺到 300m 外的城镇入口，再往里渐变成方石铺装和大理石广场。
+## 城墙和城镇建筑还没做 —— 这块地只是先把「将来城镇站哪儿」铺出来。
 ##
 ## 视觉目标：二次元中世纪晴天 —— 明亮、饱和、干净。
 ## 和雨夜场景的冷蓝低照度形成强反差，这本身就是「穿越」的信号。
+##
+## 文件名仍叫 grassland 是因为 scenes/grassland.tscn 与 opening_flow 都引用了它，
+## 改名要动协作者的文件，等确认后再一起改。
 
 const K := preload("res://scripts/kit.gd")
+const GROUND_SHADER := preload("res://shaders/ground.gdshader")
 const PlayerController := preload("res://scripts/player_controller.gd")
 const Dog := preload("res://scripts/dog.gd")
 const DialogueRunnerScript := preload("res://scripts/dialogue/dialogue_runner.gd")
@@ -18,8 +26,39 @@ const DialogueRunnerScript := preload("res://scripts/dialogue/dialogue_runner.gd
 ## 或者改这一个常量 —— 剧本文件不用动
 const PLAYER_NAME := "旅人"
 
-## 地面边长（米）。文档要求 400 × 400，足够走，且配合淡雾藏住边缘
-const GROUND_SIZE := 400.0
+## 地面边长（米）。整片地形都是土路那种平地，所以尺寸只需盖住「路 + 城镇地面」，
+## 剩下的交给远景地面。
+## 1500（±750）不是随便给的：城镇地面铺到 630，而远景地面那份材质**不算铺装**
+## （省 6 次 fbm），如果主地面只到 600，600~630 那截铺装就会突然变回土，
+## 而且正好落在 6cm 的接缝台阶上，看起来像被人切了一刀
+const GROUND_SIZE := 1500.0
+## 远景地面：玩法地面之外还有一层更大的平面，只为了不让人看见「地板边缘」。
+## 它比玩法地面低 6cm，两层面片不会在交界上打架。
+## 4km（±2000）配 0.0011 的雾：边缘处只剩一成清晰度，看不见断口
+const FAR_GROUND_SIZE := 4000.0
+const FAR_GROUND_Y := -0.06
+
+## 主路：从脚下一直铺到城镇入口（300m）。
+## 上一版是 200m，这次按要求加长一半；路的尽头直接接铺装，不再有「草」这层过渡
+const ROAD_LENGTH := 300.0
+## 路面半宽（米）。比上一版略宽，因为两侧不再有草，路太细会显得地广人稀
+const ROAD_HALF_WIDTH := 3.2
+## 路的横向弯度：x = bend·sin(π·z/ROAD_LENGTH)，先弯出去再回到 x=0
+const ROAD_BEND := 9.0
+
+## 城镇地面（方石铺装）：以 z 300 为入口，向 +Z 铺 330m，横向 ±150m。
+## 进深给到 330 是为了让「城镇地面的尽头」退到 1100m 外，
+## 否则站在广场上会看到地平线横着一条土黄带，像铺装被一刀切了。
+## 城墙将来立在这块地的边缘，所以先按「将来装得下」的尺寸铺
+const PAVED_CENTER := Vector2(0.0, 465.0)
+const PAVED_HALF := Vector2(150.0, 165.0)
+## 大理石：进镇 50m 后开始渐变，到 130m 处完全是石板。
+## 80m 的渐变带是照「走过去能不能感觉到」定的：按 4.2 m/s 是 19 秒，
+## 再长就变成「走着走着颜色不知不觉变了」，玩家不会注意到这是一段过渡
+const MARBLE_Z0 := 350.0
+const MARBLE_Z1 := 430.0
+## 大理石广场的横向半宽，比铺装窄 12m，两侧留一圈方石当路缘
+const MARBLE_HALF_W := 138.0
 ## 醒来的补间时长（秒）
 const WAKE_SECONDS := 2.0
 ## 躺下时模型需要抬高多少米，身体背面才刚好贴地（实测值，见 _play_wake_up）
@@ -76,12 +115,17 @@ func _setup_environment() -> void:
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	env.tonemap_exposure = 1.0
 
-	# 淡雾：主要目的是掩盖 400m 平面的硬边缘，不是做气氛。
-	# 颜色带一点绿，远处草地才不会褪成一片白
+	# 淡雾：主要目的是掩盖远处地面的硬边缘，不是做气氛。
+	# 这一版地面全是土，土黄被雾一漂就变成「盐碱地」，所以比上一版淡得多：
+	#   0.0024 时 300m 处只剩五成，大理石广场整个糊进白里（实测过，纯白一片）；
+	#   0.0011 时 300m 处仍有七成、600m 处四成，广场和方石能看清，
+	#   而 2000m 的远景边缘只剩一成，边缘照样藏得住。
+	# 雾色也从接近白压到灰，避免和过曝的石板叠在一起；
+	# 别再带绿 —— 地面已经没有草了，绿雾会让远处的石板发青
 	env.fog_enabled = true
-	env.fog_light_color = Color("#d6e6de")
+	env.fog_light_color = Color("#d2d5cb")
 	env.fog_light_energy = 1.0
-	env.fog_density = 0.0035
+	env.fog_density = 0.0011
 	env.fog_sky_affect = 0.0
 	env.fog_aerial_perspective = 0.0
 
@@ -124,7 +168,7 @@ func _setup_ground() -> void:
 	pm.subdivide_width = 0          # 纯平地形，细分只会浪费三角形
 	pm.subdivide_depth = 0
 	mi.mesh = pm
-	mi.material_override = _ground_material()
+	mi.material_override = _ground_material(true)
 	add_child(mi)
 
 	# 碰撞：和视觉平面同尺寸的薄盒子，顶面正好在 y = 0
@@ -138,49 +182,90 @@ func _setup_ground() -> void:
 	body.add_child(col)
 	add_child(body)
 
+	_setup_far_ground(_ground_material(false))
 
-## 绿色草地材质。整块纯色会像塑料，所以用 NoiseTexture2D 做 albedo：
-## 噪声通过 Gradient 映射到「偏暗的绿 ↔ 偏亮的绿」，只做明暗起伏，不压暗整体。
-func _ground_material() -> StandardMaterial3D:
-	var noise := FastNoiseLite.new()
-	noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
-	noise.frequency = 0.006
-	noise.fractal_octaves = 3
 
-	var ramp := Gradient.new()
-	ramp.set_color(0, Color(0.80, 0.90, 0.72))
-	ramp.set_color(1, Color(1.00, 1.00, 0.94))
+## 玩法地面之外的一层大平面。
+## 1200m 的地面在 ±600m 处有一条硬边，站直了看就是「地到这儿断了」；
+## 这里铺一层 3km、低 6cm 的平面接着，远处还有雾，边界就完全藏住了。
+## 材质与主地面**同源同参数**，土路直接跨过接缝继续延伸 —— 没有分界线。
+## 同时给它碰撞：不然走出 600m 会直接掉下去（城镇将来要往外扩，正好用得上）。
+func _setup_far_ground(mat: Material) -> void:
+	var mi := MeshInstance3D.new()
+	mi.name = "FarGround"
+	var pm := PlaneMesh.new()
+	pm.size = Vector2(FAR_GROUND_SIZE, FAR_GROUND_SIZE)
+	mi.mesh = pm
+	mi.material_override = mat
+	mi.position.y = FAR_GROUND_Y
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(mi)
 
-	var tex := NoiseTexture2D.new()
-	tex.width = 512
-	tex.height = 512
-	tex.seamless = true
-	tex.generate_mipmaps = true
-	tex.noise = noise
-	tex.color_ramp = ramp
+	var body := StaticBody3D.new()
+	body.name = "FarGroundBody"
+	var col := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = Vector3(FAR_GROUND_SIZE, 2.0, FAR_GROUND_SIZE)
+	col.shape = box
+	col.position = Vector3(0.0, FAR_GROUND_Y - 1.0, 0.0)
+	body.add_child(col)
+	add_child(body)
 
-	var m := StandardMaterial3D.new()
-	m.albedo_color = Color("#6f9a4e")
-	m.albedo_texture = tex
-	# 400m 的平面上铺约 25 个循环，每块 16m，配合噪声频率形成大块色差
-	m.uv1_scale = Vector3(25.0, 25.0, 25.0)
-	m.roughness = 1.0
-	m.metallic = 0.0
-	m.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
+
+## 土路 / 方石铺装 / 大理石全部由 shader 按世界坐标算（见 shaders/ground.gdshader）。
+## 交给 shader 而不是叠面片的原因：铺装要铺到 500m 外，那个距离上深度精度只有几厘米，
+## 叠面必然闪面；而且叠出来的边缘是硬切，看不出「土路走进去慢慢变成石板」。
+##
+## paving 只控制「要不要算铺装」：远景地面永远看不到城镇地面（它在 ±1500 之外），
+## 关掉能省掉 6 次 fbm —— 远景地面几乎铺满整个屏幕，这才是帧率的来源。
+func _ground_material(paving: bool) -> ShaderMaterial:
+	var m := ShaderMaterial.new()
+	m.shader = GROUND_SHADER
+	m.set_shader_parameter("road_z1", ROAD_LENGTH)
+	m.set_shader_parameter("road_half_width", ROAD_HALF_WIDTH)
+	m.set_shader_parameter("road_bend", ROAD_BEND)
+	m.set_shader_parameter("road_end_z", ROAD_LENGTH)
+	m.set_shader_parameter("paved_center", PAVED_CENTER)
+	m.set_shader_parameter("paved_half", PAVED_HALF)
+	m.set_shader_parameter("marble_z0", MARBLE_Z0)
+	m.set_shader_parameter("marble_z1", MARBLE_Z1)
+	m.set_shader_parameter("marble_half_w", MARBLE_HALF_W)
+	m.set_shader_parameter("paving_amount", 1.0 if paving else 0.0)
 	return m
 
 
 ## 远景缓丘：几块压扁的大球，只露出顶部，用来收住地平线。
-## 没有它们，400m 平面看起来就是一块悬浮的板子。
+## 没有它们，一大片土色平原会一路平到雾里，看不出空间纵深。
+##
+## 位置有一个硬约束：**不能压进城镇地面**（x ±150、z 300~560）。
+## 这些球是半径几百米、贴地压扁的穹顶，只要足迹碰到那块地，
+## 就会从广场中间长出一堵缓坡，把将来要立城墙的地方顶掉。
+## 所以 +Z 正前方一排全部放到 700m 以外，两侧和后方也退到 500m 开外。
+##
+## 顺带一个换算：K.sphere 把球压成高度 h，球心在 y = -1，
+## 所以山顶实际高度是 h/2 - 1。想要 90m 的山，h 得给 182。
 func _setup_hills() -> void:
-	var far := K.toon(Color("#8cad74"), {"line": 0.0, "shade": 0.62, "rim": 0.0})
-	var near := K.toon(Color("#7ea265"), {"line": 0.0, "shade": 0.60, "rim": 0.0})
+	# 山的颜色要压得比「看起来对的绿色」更深一档：
+	# 它们全在 300m 以外，隔着雾出现在屏幕上，本来就已经被漂白了一半
+	var far := K.toon(Color("#6e8d5b"), {"line": 0.0, "shade": 0.62, "rim": 0.0})
+	var near := K.toon(Color("#5f8049"), {"line": 0.0, "shade": 0.60, "rim": 0.0})
 	var specs := [
-		{"pos": Vector3(-150.0, -1.0, 120.0), "r": 95.0, "h": 17.0, "mat": far},
-		{"pos": Vector3(60.0, -1.0, 175.0), "r": 120.0, "h": 21.0, "mat": far},
-		{"pos": Vector3(180.0, -1.0, 40.0), "r": 105.0, "h": 15.0, "mat": far},
-		{"pos": Vector3(-170.0, -1.0, -90.0), "r": 110.0, "h": 19.0, "mat": near},
-		{"pos": Vector3(30.0, -1.0, -185.0), "r": 130.0, "h": 23.0, "mat": far},
+		# 左右近处：从起点看得到的缓丘，压住两侧地平线
+		{"pos": Vector3(-330.0, -1.0, 130.0), "r": 110.0, "h": 44.0, "mat": near},
+		{"pos": Vector3(345.0, -1.0, 90.0), "r": 115.0, "h": 46.0, "mat": near},
+		# 左右远处：更大更淡，和上面的缓丘错开高度，才不会连成一条环
+		{"pos": Vector3(-700.0, -1.0, 300.0), "r": 420.0, "h": 155.0, "mat": far},
+		{"pos": Vector3(760.0, -1.0, 260.0), "r": 440.0, "h": 175.0, "mat": far},
+		# 身后
+		{"pos": Vector3(-320.0, -1.0, -210.0), "r": 130.0, "h": 50.0, "mat": near},
+		{"pos": Vector3(310.0, -1.0, -300.0), "r": 125.0, "h": 48.0, "mat": near},
+		{"pos": Vector3(30.0, -1.0, -430.0), "r": 145.0, "h": 54.0, "mat": near},
+		{"pos": Vector3(-560.0, -1.0, -520.0), "r": 400.0, "h": 145.0, "mat": far},
+		{"pos": Vector3(520.0, -1.0, -600.0), "r": 380.0, "h": 135.0, "mat": far},
+		# 正前方远处：城镇背后的一道山脊。这一层不挡路，
+		# 只有在薄雾里的一抹淡影，作用是让 +Z 方向也有个收口
+		{"pos": Vector3(-820.0, -1.0, 780.0), "r": 480.0, "h": 205.0, "mat": far},
+		{"pos": Vector3(880.0, -1.0, 760.0), "r": 460.0, "h": 195.0, "mat": far},
 	]
 	for s in specs:
 		var r: float = s["r"]
