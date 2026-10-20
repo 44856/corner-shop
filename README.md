@@ -12,8 +12,15 @@
 ./Godot_v4.7.2-stable_linux.x86_64 --path .
 ```
 
+启动即进入 `scenes/opening_flow.tscn`：先播雨夜便利店的开场动画（约 40 秒，空格可跳过），
+黑场之后自动切到异世界草原 `scenes/grassland.tscn`，醒来后按 `F` 和狗说话。
+单独看某个场景可以用 `--path . scenes/grassland.tscn`（编辑器里选中该场景按 F6）。
+
 渲染器为 **Forward+**（湿地面 SSR 反射、SSAO、体积雾、景深需要 Forward+）。
 若机器只有 OpenGL，场景仍可正常显示，只是会失去屏幕空间反射与体积雾。
+
+> 换了机器或拉了大文件之后，先跑一次 `--headless --editor --quit` 重新导入资源。
+> `.godot/` 不进仓库，缺了这一步音频和 `gaia.glb` 会加载失败，场景看起来就像「少了东西」。
 
 ## 操作（无任何 UI）
 
@@ -27,8 +34,17 @@
 ## 场景构成
 
 ```
-scenes/main.tscn        场景入口（仅挂载 main.gd）
+scenes/opening_flow.tscn 启动入口（雨夜开场 → 草原，仅挂载 opening_flow.gd）
+scenes/main.tscn        雨夜便利店街角（仅挂载 main.gd）
+scenes/grassland.tscn   异世界草原（仅挂载 grassland.gd）
+scripts/opening_flow.gd 流程串联：监听开场动画结束 → 盖黑 → 换场景
+scripts/cutscene.gd     开场剧情动画（三幕：日常 / 异变 / 穿越）
 scripts/main.gd         环境、灯光、轨道相机、雨、截图调试
+scripts/grassland.gd    草原：天空、太阳、400m 地面、远景缓丘、醒来补间、对话接线
+scripts/player_controller.gd 第三人称控制器（相机支点 + 输入锁）
+scripts/dog.gd          程序化拼的狗 + 交互提示
+scripts/actor.gd        VRoid 主角模型加载、掰姿势、平色材质、描边
+scripts/dialogue/       对话解析与播放（dialogue_runner / parser / ui）
 scripts/kit.gd          建模工具库：体块、圆柱、管线、拉杆、文字、材质缓存
 scripts/street.gd       底座 / 人行道 / 马路 / 标线 / 电线杆 / 路灯 / 街角设施 / 湿地面光池
 scripts/store.gd        便利店：外壳 / 玻璃立面 / 自动门 / 雨棚 / 招牌 / 屋顶 / 店内
