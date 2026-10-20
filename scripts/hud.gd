@@ -1,0 +1,261 @@
+extends CanvasLayer
+## 可玩场景的 HUD：交互提示 / 物件反馈 / 所在区域 / 操作说明。
+##
+## 全部用 Control 在代码里搭（本工程不在编辑器里摆节点）。
+## 排版只做三件事：底部居中的交互提示、顶部居中的一行反馈、右下角操作说明。
+## 不做血条不做小地图 —— 这是雨夜便利店，不是竞技游戏。
+
+const UiFont := preload("res://scripts/ui_font.gd")
+
+const ACCENT := Color("#4dffa8")
+const WARM := Color("#ffd39a")
+const TEXT := Color("#e6f2ff")
+const MUTED := Color("#93a6b8")
+
+var _prompt_panel: PanelContainer
+var _prompt_key: Label
+var _prompt_text: Label
+var _toast: Label
+var _zone_chip: Label
+var _fade: ColorRect
+var _toast_tween: Tween
+var _prompt_shown := false
+
+
+func _ready() -> void:
+	layer = 10
+	var root := Control.new()
+	root.name = "Root"
+	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+
+	var th := Theme.new()
+	th.default_font = UiFont.get_font()
+	th.default_font_size = 17
+	root.theme = th
+	add_child(root)
+
+	_build_title(root)
+	_build_zone(root)
+	_build_prompt(root)
+	_build_toast(root)
+	_build_controls(root)
+	_build_fade(root)
+
+
+# ---------------------------------------------------------------- 构件
+
+func _panel(bg: Color, border: Color, radius: int = 10) -> PanelContainer:
+	var p := PanelContainer.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = bg
+	sb.border_color = border
+	sb.set_border_width_all(1)
+	sb.set_corner_radius_all(radius)
+	sb.content_margin_left = 14
+	sb.content_margin_right = 14
+	sb.content_margin_top = 8
+	sb.content_margin_bottom = 8
+	p.add_theme_stylebox_override("panel", sb)
+	return p
+
+
+func _label(text: String, size: int, color: Color) -> Label:
+	var l := Label.new()
+	l.text = text
+	l.add_theme_font_size_override("font_size", size)
+	l.add_theme_color_override("font_color", color)
+	return l
+
+
+func _build_title(root: Control) -> void:
+	# 标题压在店招 / 室内墙上时白字会「消失」，所以整块垫一张深色半透明底板，
+	# 而不是只靠描边硬撑。
+	var card := _panel(Color(0.02, 0.035, 0.05, 0.55), Color(1, 1, 1, 0.07), 10)
+	card.position = Vector2(36, 30)
+	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(card)
+
+	# 左侧竖线（用一条细 ColorRect 当装饰）
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	card.add_child(row)
+
+	var bar := ColorRect.new()
+	bar.color = ACCENT
+	bar.custom_minimum_size = Vector2(3, 42)
+	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(bar)
+
+	var texts := VBoxContainer.new()
+	texts.add_theme_constant_override("separation", 1)
+	row.add_child(texts)
+	texts.add_child(_label("HOSHI MART", 24, TEXT))
+	texts.add_child(_label("雨夜 23:47　便利店街角", 13, MUTED))
+
+
+func _build_zone(root: Control) -> void:
+	var p := _panel(Color(0.03, 0.05, 0.08, 0.6), Color(1, 1, 1, 0.1), 8)
+	p.anchor_left = 1.0
+	p.anchor_right = 1.0
+	p.offset_left = -178
+	p.offset_right = -40
+	p.offset_top = 40
+	p.offset_bottom = 76
+	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(p)
+	_zone_chip = _label("店外 · 人行道", 13, MUTED)
+	_zone_chip.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	p.add_child(_zone_chip)
+
+
+func _build_prompt(root: Control) -> void:
+	var center := CenterContainer.new()
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	center.anchor_left = 0.0
+	center.anchor_right = 1.0
+	center.anchor_top = 1.0
+	center.anchor_bottom = 1.0
+	center.offset_top = -132
+	center.offset_bottom = -78
+	root.add_child(center)
+
+	_prompt_panel = _panel(Color(0.04, 0.07, 0.1, 0.78), Color(ACCENT, 0.35), 12)
+	_prompt_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_prompt_panel.modulate.a = 0.0
+	center.add_child(_prompt_panel)
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	_prompt_panel.add_child(row)
+
+	var badge := _panel(Color(ACCENT, 0.16), Color(ACCENT, 0.55), 6)
+	badge.custom_minimum_size = Vector2(28, 26)
+	badge.add_theme_stylebox_override("panel", badge.get_theme_stylebox("panel"))
+	row.add_child(badge)
+	_prompt_key = _label("E", 14, ACCENT)
+	_prompt_key.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_prompt_key.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_prompt_key.custom_minimum_size = Vector2(28, 26)
+	badge.add_child(_prompt_key)
+
+	_prompt_text = _label("", 16, TEXT)
+	_prompt_text.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.add_child(_prompt_text)
+
+
+func _build_toast(root: Control) -> void:
+	var center := CenterContainer.new()
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	center.anchor_left = 0.0
+	center.anchor_right = 1.0
+	center.anchor_top = 0.0
+	center.anchor_bottom = 0.0
+	center.offset_top = 640
+	center.offset_bottom = 700
+	root.add_child(center)
+
+	_toast = _label("", 18, Color("#ffe8c4"))
+	_toast.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_toast.add_theme_color_override("font_outline_color", Color(0.02, 0.03, 0.05, 0.95))
+	_toast.add_theme_constant_override("outline_size", 8)
+	_toast.modulate.a = 0.0
+	center.add_child(_toast)
+
+
+func _build_controls(root: Control) -> void:
+	var box := VBoxContainer.new()
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.anchor_left = 1.0
+	box.anchor_right = 1.0
+	box.anchor_top = 1.0
+	box.anchor_bottom = 1.0
+	box.offset_left = -300
+	box.offset_right = -40
+	box.offset_top = -140
+	box.offset_bottom = -36
+	box.alignment = BoxContainer.ALIGNMENT_END
+	box.add_theme_constant_override("separation", 3)
+	root.add_child(box)
+
+	var lines := [
+		["WASD", "移动"],
+		["Shift", "快跑"],
+		["空格", "跳"],
+		["鼠标", "转视角"],
+		["Tab", "释放鼠标"],
+	]
+	for pair in lines:
+		var row := HBoxContainer.new()
+		row.alignment = BoxContainer.ALIGNMENT_END
+		row.add_theme_constant_override("separation", 8)
+		box.add_child(row)
+		var k := _label(pair[0], 12, TEXT)
+		k.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		var v := _label(pair[1], 12, MUTED)
+		row.add_child(k)
+		row.add_child(v)
+
+
+func _build_fade(root: Control) -> void:
+	_fade = ColorRect.new()
+	_fade.color = Color(0, 0, 0, 1)
+	_fade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_fade.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.add_child(_fade)
+
+
+# ---------------------------------------------------------------- 接口
+
+func show_prompt(text: String, key: String = "E") -> void:
+	if _prompt_text.text != text:
+		_prompt_text.text = text
+	_prompt_key.text = key
+	if _prompt_shown:
+		return
+	_prompt_shown = true
+	var tw := create_tween()
+	tw.tween_property(_prompt_panel, "modulate:a", 1.0, 0.16)
+
+
+func hide_prompt() -> void:
+	if not _prompt_shown:
+		return
+	_prompt_shown = false
+	var tw := create_tween()
+	tw.tween_property(_prompt_panel, "modulate:a", 0.0, 0.2)
+
+
+func toast(text: String, seconds: float = 3.2) -> void:
+	_toast.text = text
+	if _toast_tween != null and _toast_tween.is_valid():
+		_toast_tween.kill()
+	_toast.modulate.a = 0.0
+	_toast_tween = create_tween()
+	_toast_tween.tween_property(_toast, "modulate:a", 1.0, 0.18)
+	_toast_tween.tween_interval(seconds)
+	_toast_tween.tween_property(_toast, "modulate:a", 0.0, 0.6)
+
+
+func set_zone(text: String, accent: bool = false) -> void:
+	_zone_chip.text = text
+	_zone_chip.add_theme_color_override("font_color", ACCENT if accent else MUTED)
+
+
+## 从黑场淡入。传 0 就直接跳过（截图模式用）。
+func fade_in(seconds: float = 1.4) -> void:
+	if seconds <= 0.0:
+		_fade.color.a = 0.0
+		return
+	_fade.color.a = 1.0
+	var tw := create_tween()
+	tw.tween_property(_fade, "color:a", 0.0, seconds)
+
+
+func fade_out(seconds: float = 1.0) -> void:
+	var tw := create_tween()
+	tw.tween_property(_fade, "color:a", 1.0, seconds)
+
+
+func prompt_alpha() -> float:
+	return _prompt_panel.modulate.a
