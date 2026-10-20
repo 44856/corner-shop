@@ -19,6 +19,7 @@ const K := preload("res://scripts/kit.gd")
 const GROUND_SHADER := preload("res://shaders/ground.gdshader")
 const PlayerController := preload("res://scripts/player_controller.gd")
 const Dog := preload("res://scripts/dog.gd")
+const CityWall := preload("res://scripts/city_wall.gd")
 const DialogueRunnerScript := preload("res://scripts/dialogue/dialogue_runner.gd")
 
 ## 主角名。剧本里的 {NAME} 占位符就替换成它。
@@ -80,6 +81,7 @@ func _ready() -> void:
 	_setup_sun()
 	_setup_ground()
 	_setup_hills()
+	_setup_city_wall()
 	_setup_player()
 	_setup_dog()
 	_setup_dialogue()
@@ -271,6 +273,14 @@ func _setup_hills() -> void:
 		var r: float = s["r"]
 		var h: float = s["h"]
 		K.sphere(self, r, s["pos"], s["mat"], Vector3.ZERO, 20, h / (r * 2.0), false)
+
+
+# ---------------------------------------------------------------- 城墙
+
+## 沿城镇地基的四边围一圈城墙，城门开在道路正对的 z=300、x=0。
+## 地基范围（x±150、z 300~630）是硬约束，改了铺装尺寸这里也要跟着改。
+func _setup_city_wall() -> void:
+	CityWall.build(self)
 
 
 # ---------------------------------------------------------------- 玩家
