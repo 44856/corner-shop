@@ -24,6 +24,20 @@ uniform vec4 dirt_light : source_color = vec4(0.412, 0.362, 0.288, 1.0);
 uniform vec4 dirt_dark : source_color = vec4(0.290, 0.244, 0.190, 1.0);
 uniform vec4 grit_color : source_color = vec4(0.470, 0.438, 0.378, 1.0);
 
+// ---- 草地（出生点一侧）
+// 地形分两区：出生点附近是草地，往城镇方向慢慢变成压实的土面（平地），
+// 道路和铺装盖在两者之上，不受影响。
+//
+// 亮度刻意和土面对齐（0.26~0.58 对土面的 0.24~0.41）：
+// 两边的平均亮度接近，过渡带才不会出现一条「明暗台阶」，
+// 只会看到颜色在换。
+uniform vec4 grass_light : source_color = vec4(0.420, 0.580, 0.300, 1.0);
+uniform vec4 grass_dark : source_color = vec4(0.258, 0.392, 0.198, 1.0);
+uniform vec4 grass_dry : source_color = vec4(0.520, 0.540, 0.280, 1.0);
+// 草到哪儿结束（米），以及过渡带宽度（米）
+uniform float grass_z1 = 120.0;
+uniform float grass_fade = 45.0;
+
 // ---- 主路
 uniform float road_half_width = 3.2;
 uniform float road_z1 = 300.0;
@@ -106,6 +120,24 @@ void fragment() {
 	dirt = mix(dirt, grit_color.rgb, smoothstep(0.76, 0.97, grain) * 0.15);
 	dirt *= 1.0 - smoothstep(0.80, 0.97, vnoise(p * 17.0)) * 0.16;
 
+	// ================= 1b. 草地 =================
+	// 出生点一侧铺草，往 +Z（城镇方向）渐渐变成压实的土面。
+	// 边界用低频噪声扰动 ±15m，否则会在地面上看到一条笔直的换色线。
+	float gz = wpos.z + (fbm(p * 0.021 + 9.0) - 0.5) * 30.0;
+	float grass_mask = 1.0 - smoothstep(grass_z1 - grass_fade, grass_z1, gz);
+
+	// 草的层次：大块深浅 + 1~2m 的斑驳 + 少量枯黄
+	float g_big = fbm(p * 0.075 + 17.0);
+	float g_mid = fbm(p * 2.1 - 5.0);
+	vec3 grass = mix(grass_dark.rgb, grass_light.rgb, g_big);
+	grass *= 0.86 + 0.28 * g_mid;
+	grass = mix(grass, grass_dry.rgb, smoothstep(0.70, 0.94, fbm(p * 0.33 + 31.0)) * 0.20);
+	// 近处几米的细碎草尖：一点点高频提亮，没有它近看是一块塑料绿
+	grass *= 1.0 + smoothstep(0.72, 0.98, vnoise(p * 9.0)) * 0.10;
+
+	// 土层与草地按遮罩混合，再让道路盖在最上面
+	vec3 base = mix(dirt, grass, grass_mask);
+
 	// ================= 2. 主路 =================
 	// 中心线：0 → road_z1 一段缓弧，终点回到 x = 0（城镇就在正前方）；
 	// 之后 t 夹到 1，sin(PI) = 0，路笔直继续延伸
@@ -126,7 +158,7 @@ void fragment() {
 	road_col *= 1.0 - rut * 0.16;
 	road_col = mix(road_col, road_col * 0.90, smoothstep(0.72, 0.96, vnoise(p * 26.0)) * 0.22);
 
-	vec3 col = mix(dirt, road_col, road);
+	vec3 col = mix(base, road_col, road);
 
 	// 路肩：土被反复踩到边上堆起来，压出一道暗边。
 	// 不加这道暗边，土路和两侧是同一种土，二十米外就完全分不出来了

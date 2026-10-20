@@ -48,6 +48,13 @@ const ROAD_HALF_WIDTH := 3.2
 ## 路的横向弯度：x = bend·sin(π·z/ROAD_LENGTH)，先弯出去再回到 x=0
 const ROAD_BEND := 9.0
 
+## 分区：出生点一侧是草地，往城镇方向过渡成压实的土面（平地）。
+## 120m 是按「醒来后往前走大约 28 秒才踩到泥地」定的 ——
+## 太短就来不及建立「这是一片草原」的印象，太长则快到城门了还是草地。
+const GRASS_Z1 := 120.0
+## 草地→平地的过渡带宽度。45m 是让边界看起来是「慢慢没了」而不是「一条线」
+const GRASS_FADE := 45.0
+
 ## 城镇地面（方石铺装）：以 z 300 为入口，向 +Z 铺 330m，横向 ±150m。
 ## 进深给到 330 是为了让「城镇地面的尽头」退到 1100m 外，
 ## 否则站在广场上会看到地平线横着一条土黄带，像铺装被一刀切了。
@@ -229,6 +236,8 @@ func _ground_material(paving: bool) -> ShaderMaterial:
 	m.set_shader_parameter("road_half_width", ROAD_HALF_WIDTH)
 	m.set_shader_parameter("road_bend", ROAD_BEND)
 	m.set_shader_parameter("road_end_z", ROAD_LENGTH)
+	m.set_shader_parameter("grass_z1", GRASS_Z1)
+	m.set_shader_parameter("grass_fade", GRASS_FADE)
 	m.set_shader_parameter("paved_center", PAVED_CENTER)
 	m.set_shader_parameter("paved_half", PAVED_HALF)
 	m.set_shader_parameter("marble_z0", MARBLE_Z0)
