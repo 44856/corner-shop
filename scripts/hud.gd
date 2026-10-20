@@ -12,6 +12,27 @@ const WARM := Color("#ffd39a")
 const TEXT := Color("#e6f2ff")
 const MUTED := Color("#93a6b8")
 
+## ---- 场景可覆盖的文案与强调色 ----
+## **必须在本节点 add_child 之前赋值**：控件是 _ready() 里建的。
+## 默认值就是雨夜便利店那一套，所以 store_walk 不用改任何代码；
+## 草原场景只换文案和强调色，控件与交互提示的表现完全一致。
+var title_text := "HOSHI MART"
+var subtitle_text := "雨夜 23:47　便利店街角"
+var zone_text := "店外 · 人行道"
+## 交互提示方块里显示的按键名
+var key_hint := "E"
+## 右下角操作说明，元素是 [按键, 说明]
+var controls: Array = [
+	["WASD", "移动"],
+	["Shift", "快跑"],
+	["空格", "跳"],
+	["鼠标", "转视角"],
+	["Tab", "释放鼠标"],
+]
+## 强调色。夜景用霓虹绿，白天场景用暖金，提示框边框/按键块都跟着变。
+## 名字带 _color 是为了不和 set_zone(text, accent: bool) 的参数撞名
+var accent_color := ACCENT
+
 var _prompt_panel: PanelContainer
 var _prompt_key: Label
 var _prompt_text: Label
@@ -19,6 +40,11 @@ var _toast: Label
 var _zone_chip: Label
 var _fade: ColorRect
 var _toast_tween: Tween
+## 提示面板的显隐补间。必须只保留一个：show/hide 各自 create_tween 的话，
+## 快速进出交互范围时两个补间会同时写 modulate:a，后结束的那个决定最终值 ——
+## 常见结果是 hide 后结束、面板停在 0，而 _prompt_shown 仍是 true，
+## 于是这条提示再也不显示，直到文案变了才恢复
+var _prompt_tween: Tween
 var _prompt_shown := false
 
 
@@ -82,7 +108,7 @@ func _build_title(root: Control) -> void:
 	card.add_child(row)
 
 	var bar := ColorRect.new()
-	bar.color = ACCENT
+	bar.color = accent_color
 	bar.custom_minimum_size = Vector2(3, 42)
 	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(bar)
@@ -90,8 +116,8 @@ func _build_title(root: Control) -> void:
 	var texts := VBoxContainer.new()
 	texts.add_theme_constant_override("separation", 1)
 	row.add_child(texts)
-	texts.add_child(_label("HOSHI MART", 24, TEXT))
-	texts.add_child(_label("雨夜 23:47　便利店街角", 13, MUTED))
+	texts.add_child(_label(title_text, 24, TEXT))
+	texts.add_child(_label(subtitle_text, 13, MUTED))
 
 
 func _build_zone(root: Control) -> void:
@@ -104,8 +130,10 @@ func _build_zone(root: Control) -> void:
 	p.offset_bottom = 76
 	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(p)
-	_zone_chip = _label("店外 · 人行道", 13, MUTED)
+	_zone_chip = _label(zone_text, 13, MUTED)
 	_zone_chip.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_zone_chip.add_theme_color_override("font_outline_color", Color(0.02, 0.03, 0.05, 0.85))
+	_zone_chip.add_theme_constant_override("outline_size", 4)
 	p.add_child(_zone_chip)
 
 
@@ -120,7 +148,7 @@ func _build_prompt(root: Control) -> void:
 	center.offset_bottom = -78
 	root.add_child(center)
 
-	_prompt_panel = _panel(Color(0.04, 0.07, 0.1, 0.78), Color(ACCENT, 0.35), 12)
+	_prompt_panel = _panel(Color(0.04, 0.07, 0.1, 0.78), Color(accent_color, 0.35), 12)
 	_prompt_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_prompt_panel.modulate.a = 0.0
 	center.add_child(_prompt_panel)
@@ -129,11 +157,11 @@ func _build_prompt(root: Control) -> void:
 	row.add_theme_constant_override("separation", 10)
 	_prompt_panel.add_child(row)
 
-	var badge := _panel(Color(ACCENT, 0.16), Color(ACCENT, 0.55), 6)
+	var badge := _panel(Color(accent_color, 0.16), Color(accent_color, 0.55), 6)
 	badge.custom_minimum_size = Vector2(28, 26)
 	badge.add_theme_stylebox_override("panel", badge.get_theme_stylebox("panel"))
 	row.add_child(badge)
-	_prompt_key = _label("E", 14, ACCENT)
+	_prompt_key = _label(key_hint, 14, accent_color)
 	_prompt_key.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_prompt_key.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_prompt_key.custom_minimum_size = Vector2(28, 26)
@@ -178,21 +206,20 @@ func _build_controls(root: Control) -> void:
 	box.add_theme_constant_override("separation", 3)
 	root.add_child(box)
 
-	var lines := [
-		["WASD", "移动"],
-		["Shift", "快跑"],
-		["空格", "跳"],
-		["鼠标", "转视角"],
-		["Tab", "释放鼠标"],
-	]
-	for pair in lines:
+	for pair in controls:
 		var row := HBoxContainer.new()
 		row.alignment = BoxContainer.ALIGNMENT_END
 		row.add_theme_constant_override("separation", 8)
 		box.add_child(row)
 		var k := _label(pair[0], 12, TEXT)
 		k.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		# 描边不是装饰：这块文字没有底板，夜景靠深色背景还能读，
+		# 但草原那种亮绿/亮白底上，MUTED 的蓝灰会直接糊掉
+		k.add_theme_color_override("font_outline_color", Color(0.02, 0.03, 0.05, 0.85))
+		k.add_theme_constant_override("outline_size", 5)
 		var v := _label(pair[1], 12, MUTED)
+		v.add_theme_color_override("font_outline_color", Color(0.02, 0.03, 0.05, 0.85))
+		v.add_theme_constant_override("outline_size", 5)
 		row.add_child(k)
 		row.add_child(v)
 
@@ -207,23 +234,29 @@ func _build_fade(root: Control) -> void:
 
 # ---------------------------------------------------------------- 接口
 
-func show_prompt(text: String, key: String = "E") -> void:
+func show_prompt(text: String, key: String = "") -> void:
+	if key.is_empty():
+		key = key_hint
 	if _prompt_text.text != text:
 		_prompt_text.text = text
 	_prompt_key.text = key
 	if _prompt_shown:
 		return
 	_prompt_shown = true
-	var tw := create_tween()
-	tw.tween_property(_prompt_panel, "modulate:a", 1.0, 0.16)
+	if _prompt_tween != null and _prompt_tween.is_valid():
+		_prompt_tween.kill()
+	_prompt_tween = create_tween()
+	_prompt_tween.tween_property(_prompt_panel, "modulate:a", 1.0, 0.16)
 
 
 func hide_prompt() -> void:
 	if not _prompt_shown:
 		return
 	_prompt_shown = false
-	var tw := create_tween()
-	tw.tween_property(_prompt_panel, "modulate:a", 0.0, 0.2)
+	if _prompt_tween != null and _prompt_tween.is_valid():
+		_prompt_tween.kill()
+	_prompt_tween = create_tween()
+	_prompt_tween.tween_property(_prompt_panel, "modulate:a", 0.0, 0.2)
 
 
 func toast(text: String, seconds: float = 3.2) -> void:
@@ -237,9 +270,17 @@ func toast(text: String, seconds: float = 3.2) -> void:
 	_toast_tween.tween_property(_toast, "modulate:a", 0.0, 0.6)
 
 
+## 立刻收起顶部反馈。对话框是一次性的强占用区域，
+## 它出现时如果 toast 还在飞（比如「前面就是城门」），两条字会叠在一起。
+func hide_toast() -> void:
+	if _toast_tween != null and _toast_tween.is_valid():
+		_toast_tween.kill()
+	_toast.modulate.a = 0.0
+
+
 func set_zone(text: String, accent: bool = false) -> void:
 	_zone_chip.text = text
-	_zone_chip.add_theme_color_override("font_color", ACCENT if accent else MUTED)
+	_zone_chip.add_theme_color_override("font_color", accent_color if accent else MUTED)
 
 
 ## 从黑场淡入。传 0 就直接跳过（截图模式用）。

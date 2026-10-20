@@ -22,6 +22,11 @@ const Dog := preload("res://scripts/dog.gd")
 const CityWall := preload("res://scripts/city_wall.gd")
 const NpcGuard := preload("res://scripts/npc_guard.gd")
 const DialogueRunnerScript := preload("res://scripts/dialogue/dialogue_runner.gd")
+## HUD / 交互中枢直接复用便利店可玩场景那一套（feature/store-walk-in）：
+## 两个场景共用同一份控件与同一套「谁最近就提示谁」的逻辑，
+## 换成自己的颜色和文案即可，不再各写一套。
+const Hud := preload("res://scripts/hud.gd")
+const Hub := preload("res://scripts/interaction_hub.gd")
 
 ## 主角名。剧本里的 {NAME} 占位符就替换成它。
 ## 将来接「取名系统」时，只要在进入场景前把 dialogue.set_player_name() 调一次，
@@ -78,8 +83,20 @@ const LIE_PITCH_DEG := -90.0
 
 var player: CharacterBody3D
 var dog: Node3D
+## 守卫的交互半径（米）。守卫站在 22m 宽的门洞里，玩家从大路上斜着走过来，
+## 3.2m 时常要贴到脸上才出提示；4.0m 才是「站在他跟前」的自然距离
+const GUARD_TALK_RADIUS := 4.0
+
+## 城门两个守卫，元素形如 {"node": Node3D, "dialogue": 剧本路径}
+var guards: Array = []
 ## 对话状态机（不是 autoload，由本场景持有）
 var dialogue: Node
+var hud: CanvasLayer
+var hub: Node
+## 当前区域文案（只在变化时才写 HUD）
+var _zone := ""
+## 「城门就在前面」只提示一次
+var _gate_tip_shown := false
 var _env: Environment
 var _sun: DirectionalLight3D
 
@@ -94,6 +111,8 @@ func _ready() -> void:
 	_setup_player()
 	_setup_dog()
 	_setup_dialogue()
+	_setup_hud()
+	_setup_interaction()
 	_play_wake_up()
 
 
@@ -299,25 +318,44 @@ func _setup_city_wall() -> void:
 ## 两个守卫站在城门内侧，面朝城外（-Z），等着玩家从大路上走过来。
 ##
 ## 素材来自 3Dmodel 那套 Blender 角色，经 Blender 2.92 转成 glb。
-## 这些模型本来就是 A-pose，不需要掰姿势，所以这里只负责摆位置和朝向。
+## 模型导进来是 A-pose（手臂外张 37°），站姿由 npc_guard.gd 用骨骼掰出来，
+## 这里只负责摆位置、朝向和用哪套站姿。
 ##
-## 位置 (±7, 0, 303) 是照城门洞（±11）定的：站在洞里、贴着门柱，
+## 位置 (±7, 0, ≈303) 是照城门洞（±11）定的：站在洞里、贴着门柱，
 ## 既不会挡住中间的路，玩家从大路上抬头就能看见。
+##
+## 三个人为的「不整齐」——刻意的：两个人站得一模一样、连呼吸都同步，
+## 比姿势本身更容易被一眼看出是摆件。所以：
+##   - 前后错开 1 米（一个略靠前、一个略靠后）
+##   - 面朝方向各偏 12° 左右，都略朝路中线（像在留意进出的人）
+##   - 用不同站姿预设 + 微动相位错开 3.7 秒
 func _setup_gate_npcs() -> void:
 	var specs := [
 		{"name": "GuardIsaac", "path": "res://assets/npc/isaac.glb",
-			"pos": Vector3(-7.0, 0.0, 303.0), "bob": 0.012},
+			"pos": Vector3(-7.0, 0.0, 302.4), "stance": "guard_a", "phase": 0.0,
+			"face": Vector3(0.22, 0.0, -1.0),
+			"h": 1.946 * 1.2,
+			"dialogue": "res://dialogue/guard_isaac_01.txt"},
 		{"name": "GuardSkadi", "path": "res://assets/npc/skadi.glb",
-			"pos": Vector3(7.0, 0.0, 303.0), "bob": 0.016},
+			"pos": Vector3(7.0, 0.0, 303.5), "stance": "guard_b", "phase": 3.7,
+			"face": Vector3(-0.18, 0.0, -1.0),
+			"h": 1.973 * 1.2,
+			"dialogue": "res://dialogue/guard_skadi_01.txt"},
 	]
 	for s in specs:
 		var npc := NpcGuard.new()
 		npc.name = s["name"]
 		npc.model_path = s["path"]
 		npc.position = s["pos"]
-		npc.face_dir = Vector3(0.0, 0.0, -1.0)
-		npc.idle_bob = s["bob"]
+		npc.face_dir = s["face"]
+		npc.stance = s["stance"]
+		npc.phase_offset = s["phase"]
+		# 目标身高 = 原始身高 × 1.2（等比放大）。
+		# 归一化放在 npc_guard.gd 里做：那套模型的单位链路不可靠，
+		# 按「这个人应该多高」反推缩放比，比写死一个系数稳妥。
+		npc.target_height = s["h"]
 		add_child(npc)
+		guards.append({"node": npc, "dialogue": s["dialogue"]})
 
 
 # ---------------------------------------------------------------- 玩家
@@ -405,7 +443,129 @@ func _on_dialogue_started() -> void:
 	# 复用「醒来」那套冻结：清空水平意图但保留重力与贴地，
 	# 不像 set_physics_process(false) 那样把人冻在半空
 	player.input_locked = true
+	# 对话期间收起交互提示：不然 HUD 底部那条「按 E 和守卫说话」
+	# 会和对话框叠在一起，而且这时候按 E 只是在翻页
+	if hub != null:
+		hub.enabled = false
+		hud.hide_prompt()
+		hud.hide_toast()
 
 
 func _on_dialogue_finished() -> void:
 	player.input_locked = false
+	if hub != null:
+		hub.enabled = true
+
+
+# ---------------------------------------------------------------- HUD
+
+## HUD 复用便利店那套控件，只换文案与配色。
+## 必须在 add_child 之前赋值 —— 控件是 HUD 的 _ready() 里建的。
+##
+## 白天场景用暖金强调色：霓虹绿在正午的日光下会发灰，
+## 而且这是异世界不是便利店，颜色不该带过来。
+func _setup_hud() -> void:
+	hud = Hud.new()
+	hud.name = "HUD"
+	hud.title_text = "ISEKAI"
+	hud.subtitle_text = "异世界 · 草原"
+	hud.zone_text = "草原"
+	hud.accent_color = Color("#ffd39a")
+	hud.controls = [
+		["WASD", "移动"],
+		["Shift", "快跑"],
+		["空格", "跳"],
+		["鼠标", "转视角"],
+		["E", "交互"],
+		["Tab", "释放鼠标"],
+	]
+	add_child(hud)
+	# HUD 自带一层全黑遮罩（Alpha = 1）。不主动淡入的话，整块屏幕就是黑的
+	hud.fade_in(WAKE_SECONDS)
+
+
+# ---------------------------------------------------------------- 交互
+
+## 交互中枢：狗和两个守卫统一注册到这里，谁离得最近就提示谁、按 E 触发谁。
+## 判定「能不能说话」仍然留在各自身上（dog.talk()），中枢只管选目标与分发按键。
+func _setup_interaction() -> void:
+	hub = Hub.new()
+	hub.name = "Interaction"
+	add_child(hub)
+	hub.bind(player, hud)
+
+	# 狗不再自己管按键和头顶提示，改由中枢统一出 —— 否则一次 E 会被两边各处理一次
+	dog.self_interaction = false
+	hub.add_target(dog.global_position, dog.talk_radius, "跟狗打个招呼", dog.talk)
+
+	for g in guards:
+		var npc: Node3D = g["node"]
+		var path: String = g["dialogue"]
+		# 目标点抬到胸口高度：距离判定只取水平分量，抬高只为将来画 3D 提示时好看
+		var pos: Vector3 = npc.global_position + Vector3(0.0, 1.1, 0.0)
+		hub.add_target(pos, GUARD_TALK_RADIUS, "和守卫说话",
+			func() -> void: _talk_guard(path))
+
+
+func _talk_guard(path: String) -> void:
+	if dialogue == null or not is_instance_valid(dialogue):
+		return
+	if dialogue.is_active():
+		return
+	dialogue.start(path)
+
+
+# ---------------------------------------------------------------- 区域提示
+
+## 按玩家所在位置更新 HUD 右上角的区域标签。
+## 只在文案变化时写一次 —— set_zone 每次都新建主题覆盖，逐帧调用没必要。
+func _process(_delta: float) -> void:
+	if hud == null or player == null or not is_instance_valid(player):
+		return
+	var z: float = player.global_position.z
+	var zone := "草原"
+	if z >= MARBLE_Z1:
+		zone = "广场 · 大理石"
+	elif z >= ROAD_LENGTH:
+		zone = "城门内 · 方石广场"
+	elif z >= GRASS_Z1:
+		zone = "官道"
+	if zone != _zone:
+		_zone = zone
+		hud.set_zone(zone, z >= GRASS_Z1)
+
+	# 快到城门时提示一次，让玩家知道前面有东西可看
+	if not _gate_tip_shown and z >= ROAD_LENGTH - 70.0:
+		_gate_tip_shown = true
+		hud.toast("前面就是城门。走近守卫可以搭话。", 4.0)
+
+	_update_guard_attention()
+
+
+## 让离得最近的那个守卫转头看玩家。
+##
+## 站岗的人不会一直盯着正前方 —— 有人走到跟前会看一眼，这才是「有人」。
+## 判定放在这里而不是 npc_guard 里，是因为「谁离玩家最近」只有场景说得清；
+## 守卫本身只负责「看向某点」这件事。
+func _update_guard_attention() -> void:
+	if guards.is_empty():
+		return
+	var p: Vector3 = player.global_position + Vector3(0.0, 1.0, 0.0)
+	var near: Node3D = null
+	var best := 1e9
+	for g in guards:
+		var npc: Node3D = g["node"]
+		if not is_instance_valid(npc):
+			continue
+		var d: float = npc.global_position.distance_to(player.global_position)
+		if d < best:
+			best = d
+			near = npc
+	for g in guards:
+		var npc: Node3D = g["node"]
+		if not is_instance_valid(npc):
+			continue
+		if npc == near and best <= npc.notice_radius:
+			npc.look_at_point(p)
+		else:
+			npc.look_away()
