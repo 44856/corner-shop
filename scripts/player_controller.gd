@@ -60,6 +60,16 @@ const ActorScript := preload("res://scripts/actor.gd")
 ## 开场朝向（度）。180 = 相机在角色身后，角色面向 +Z（默认脸朝方向）
 @export var start_yaw_deg := 180.0
 
+@export_group("外观")
+## 角色贴图的整体色调。夜景要压暗偏冷，白天接近白
+@export var actor_tint := Color(0.96, 0.96, 0.98)
+## 暗部亮度下限
+@export_range(0.0, 1.0) var actor_shade_floor := 0.58
+## 边缘光强度
+@export_range(0.0, 0.5) var actor_rim_strength := 0.08
+## 描边厚度
+@export_range(0.0, 0.03) var actor_outline_width := 0.005
+
 ## 开场期间锁住输入，由 grassland.gd 在醒来补间结束后置 false
 var input_locked := true
 
@@ -83,6 +93,14 @@ var _buffer_left := 0.0
 var _walk_phase := 0.0
 var _walk_amount := 0.0
 var _was_airborne := false
+
+# 相机档位平滑过渡（外部街道 ⇄ 店内）
+var _cam_auto := false
+var _cam_len_t := 0.0
+var _cam_h_t := 0.0
+var _cam_fov_t := 0.0
+var _cam_shoulder_t := 0.0
+var _cam_blend := 4.0
 
 
 func _ready() -> void:
@@ -146,11 +164,11 @@ func _build_body() -> void:
 	# 平涂（use_flat_colors = true）会把五官、布料、头发全部压成色块，
 	# 远看就是「低精度」，所以这里必须走贴图版。
 	actor.use_flat_colors = false
-	# 白天不需要夜景那套压暗冷调：tint 提到接近白，暗部下限抬高
-	actor.tint = Color(0.96, 0.96, 0.98)
-	actor.shade_floor = 0.58
-	actor.rim_strength = 0.08
-	actor.outline_width = 0.005
+	# 贴图色调 / 暗部 / 边缘光由场景决定：草原是白天（接近白），雨夜要压暗偏冷
+	actor.tint = actor_tint
+	actor.shade_floor = actor_shade_floor
+	actor.rim_strength = actor_rim_strength
+	actor.outline_width = actor_outline_width
 	actor.pose = "stand"
 	actor.face_yaw_deg = 0.0          # 模型脸朝 +Z，与朝向解算一致，不要加 180°
 	actor.dash_delay = -1.0           # 不自动冲刺（那是雨夜场景的演出）
@@ -177,6 +195,48 @@ func _build_camera() -> void:
 	camera.current = true
 
 	_apply_camera()
+
+
+## 切换相机档位：距离 / 支点高度 / FOV / 肩部偏移，全部指数平滑过去。
+## 街道 → 店内需要收短（否则弹簧臂顶着墙、镜头糊在玻璃上），
+## 同时拉大 FOV、稍微抬高支点，窄空间里才看得清货架。
+##
+## 肩部偏移用 Camera3D.h_offset 而不是挪支点：它只改投影中心，
+## 不影响弹簧臂的碰撞射线，过门时不会被门框顶飞。
+## 草原场景不调这个函数，所以那边的「醒来」补间完全不受影响。
+func set_camera_profile(dist: float, height: float, fov: float,
+		shoulder: float = 0.0, blend: float = 4.0) -> void:
+	_cam_auto = true
+	_cam_len_t = dist
+	_cam_h_t = height
+	_cam_fov_t = fov
+	_cam_shoulder_t = shoulder
+	_cam_blend = blend
+
+
+func _process(delta: float) -> void:
+	if not _cam_auto:
+		return
+	var k := 1.0 - exp(-_cam_blend * delta)
+	cam_rig.spring_length = lerpf(cam_rig.spring_length, _cam_len_t, k)
+	cam_rig.position.y = lerpf(cam_rig.position.y, _cam_h_t, k)
+	camera.fov = lerpf(camera.fov, _cam_fov_t, k)
+	camera.h_offset = lerpf(camera.h_offset, _cam_shoulder_t, k)
+
+
+## 立即跳到某个机位（截图 / 传送用），不做平滑
+func snap_camera(dist: float, height: float, fov: float, shoulder: float = 0.0) -> void:
+	set_camera_profile(dist, height, fov, shoulder, 60.0)
+	cam_rig.spring_length = dist
+	cam_rig.position.y = height
+	camera.fov = fov
+	camera.h_offset = shoulder
+
+
+## 直接把角色转向某个角度（弧度，0 = 面朝 +Z）。开场站位用。
+func face(angle: float) -> void:
+	if visual != null:
+		visual.rotation.y = angle
 
 
 # ---------------------------------------------------------------- 输入
