@@ -20,6 +20,7 @@ const GROUND_SHADER := preload("res://shaders/ground.gdshader")
 const PlayerController := preload("res://scripts/player_controller.gd")
 const Dog := preload("res://scripts/dog.gd")
 const CityWall := preload("res://scripts/city_wall.gd")
+const NpcGuard := preload("res://scripts/npc_guard.gd")
 const DialogueRunnerScript := preload("res://scripts/dialogue/dialogue_runner.gd")
 
 ## 主角名。剧本里的 {NAME} 占位符就替换成它。
@@ -82,6 +83,7 @@ func _ready() -> void:
 	_setup_ground()
 	_setup_hills()
 	_setup_city_wall()
+	_setup_gate_npcs()
 	_setup_player()
 	_setup_dog()
 	_setup_dialogue()
@@ -281,6 +283,32 @@ func _setup_hills() -> void:
 ## 地基范围（x±150、z 300~630）是硬约束，改了铺装尺寸这里也要跟着改。
 func _setup_city_wall() -> void:
 	CityWall.build(self)
+
+
+# ---------------------------------------------------------------- 城门 NPC
+
+## 两个守卫站在城门内侧，面朝城外（-Z），等着玩家从大路上走过来。
+##
+## 素材来自 3Dmodel 那套 Blender 角色，经 Blender 2.92 转成 glb。
+## 这些模型本来就是 A-pose，不需要掰姿势，所以这里只负责摆位置和朝向。
+##
+## 位置 (±7, 0, 303) 是照城门洞（±11）定的：站在洞里、贴着门柱，
+## 既不会挡住中间的路，玩家从大路上抬头就能看见。
+func _setup_gate_npcs() -> void:
+	var specs := [
+		{"name": "GuardIsaac", "path": "res://assets/npc/isaac.glb",
+			"pos": Vector3(-7.0, 0.0, 303.0), "bob": 0.012},
+		{"name": "GuardSkadi", "path": "res://assets/npc/skadi.glb",
+			"pos": Vector3(7.0, 0.0, 303.0), "bob": 0.016},
+	]
+	for s in specs:
+		var npc := NpcGuard.new()
+		npc.name = s["name"]
+		npc.model_path = s["path"]
+		npc.position = s["pos"]
+		npc.face_dir = Vector3(0.0, 0.0, -1.0)
+		npc.idle_bob = s["bob"]
+		add_child(npc)
 
 
 # ---------------------------------------------------------------- 玩家
