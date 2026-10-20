@@ -172,7 +172,10 @@ func _build_camera() -> void:
 	camera.position = Vector3(0.0, 0.0, cam_distance)
 	camera.fov = 52.0
 	camera.near = 0.05
-	camera.far = 800.0
+	# 视距 2500m：城镇地面在 300~560m，远景地面铺到 ±2000m，
+	# 800 会在 800m 处硬切一刀，把地面裁成天花板。雾在 2000m 处只剩一成，
+	# 所以这个距离不是浪费 —— 它保证「裁掉的地方」永远在看不见的地方
+	camera.far = 2500.0
 	cam_rig.add_child(camera)
 	camera.current = true
 
