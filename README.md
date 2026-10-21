@@ -81,7 +81,7 @@ scenes/opening_flow.tscn  原开场流程（雨夜三幕 → 草原）
 scenes/grassland.tscn   异世界草原
 
 scripts/store_walk.gd   可玩版编排：装配世界 / 玩家 / 门 / HUD / 交互 / 开场推镜 / 截图模式
-scripts/truck.gd        大货车造型（6.2m 厢式，材质带台面裁剪）
+scripts/truck.gd        大货车造型（6.2m 厢式，底盘/厢体/驾驶室/车轮四层细节 + 车灯光柱）
 scripts/truck_event.gd  车祸事件：触发条件 / 冲刺 / 命中 / 收黑 / 复位
 scripts/world_env.gd    环境、月光、雨、涟漪（从 main.gd 抽出，参数逐项照搬）
 scripts/collision_layout.gd 简化碰撞层：地面 / 墙 / 货架 / 台阶斜面 / 街道设施 / 边界
@@ -97,7 +97,7 @@ scripts/props.gd        道具：贩卖机 / 自行车 / 伞架 / 垃圾桶 / �
 scripts/kit.gd          建模工具库：体块、圆柱、管线、拉杆、文字、材质缓存
 scripts/backup/diorama_orbit.gd 改造前编排的冻结副本
 scripts/dialogue/       对话解析与播放（草原用）
-shaders/                三渲二 / 描边 / 砖缝 / 玻璃 / 自发光 / 湿光 / 雨 / 涟漪
+shaders/                三渲二 / 描边 / 砖缝 / 玻璃 / 自发光 / 湿光 / 车灯光束 / 雨 / 涟漪
 tools/walk_probe.tscn   自动行走回归测试（见「自测」）
 tools/truck_probe.tscn  车祸事件回归测试（见「自测」）
 ```
@@ -136,6 +136,10 @@ tools/truck_probe.tscn  车祸事件回归测试（见「自测」）
   锁输入 → 0.42s 预警喇叭 → 货车从台面外 9m 处以 13m/s 冲进来。
   车头距人 4.5m 时 `Engine.time_scale` 收到 0.35（慢镜头），命中后击飞 + 白闪 +
   镜头抖 + 闷响，0.22s 收黑，黑场里复位到出生点。详见 `docs/任务03-马路车祸事件.md`。
+- **车灯是真的会打光**：两盏前照灯各挂一个 SpotLight（照亮路面）+ 一个无盖锥体
+  （空气里的光柱）+ 一块地面光池（湿地上那块亮斑）+ 一盏柔光球（灯头光晕）。
+  光柱和光池共用 `headlamp.gdshader`，同样带台面裁剪；尾灯 / 侧标志灯 / 示廓灯
+  是自发光面板，刹车时尾灯从 2.2 提到 5.0。
 - **超出台面的部分不渲染**：`toon / outline / glow` 三个 shader 都加了
   `clip_on / clip_min / clip_max`，片元世界坐标越界就 `discard`。
   货车一律用 `kit.toon_clipped()` / `glow_clipped()` 生成材质 ——
@@ -159,8 +163,9 @@ tools/truck_probe.tscn  车祸事件回归测试（见「自测」）
 ./Godot_v4.7.2-stable_linux.x86_64 --headless --path . res://tools/truck_probe.tscn
 ```
 
-15 条断言：触发前置条件、路缘 / 路中间的触发线、生成点在台面外、材质带裁剪参数、命中与击飞、
-复位位置与输入锁、车出台面后回收、事件不重复触发。
+17 条断言：触发前置条件、路缘 / 路中间的触发线、生成点在台面外、材质带裁剪参数、
+车灯有可见光束、车身文字在台面外不显示、命中与击飞、复位位置与输入锁、
+车出台面后回收、事件不重复触发。
 
 ## 美术要点
 
@@ -169,6 +174,7 @@ tools/truck_probe.tscn  车祸事件回归测试（见「自测」）
 - **微缩模型感**：11.2 × 11.2 正方形底座，深色石材台座 + 黄铜腰线 + 正面铭牌；展示版相机 40° 长焦、低俯角，Forward+ 下附带轻微景深（移轴感）。
 - **雨**：`rain_particles.gdshader` 自己算雨滴下落，每帧按 xz 采样「该列最高的可接雨表面」（马路 0.0 / 人行道 0.16 / 后巷 0.19 / 雨棚 2.66 / 屋面 3.71），落到面上就回收重发——雨丝不会穿过雨棚和屋顶继续往下掉。面片挂在粒子位置上方，触面时刚好收在地表。面片尺寸 5.5mm × 150mm —— 长宽各减半，可见面积是初版的 1/4；粒子数 1200（初版 2400），下落频率同步减半。
 - **涟漪**：`rain_ripple.gdshader` 按世界坐标切网格、每格随机相位画扩散圆环，铺在马路、门前人行道、后巷与屋面上；加色混合 + 关闭深度写入，不和标线、光池打架；雨棚正下方用 `dry_min/dry_max` 裁掉，保持干燥。
+- **车灯光柱**：`headlamp.gdshader` 用一个无盖锥筒 + 加色混合假装体积光。锥壳上每个片元都贴着锥面，用「离轴距离」算衰减会恒等于 0，所以改用 `|N·V|`：视线正对着的那一侧最厚、轮廓边缘最薄，看起来才像一束光而不是一块半透明的三角板。锥筒不带端盖 —— 带盖的话正对车头时远端那张圆盘会像一块悬空的发光板。地面上的亮斑是另一块椭圆面片（同一个着色器，`pool = true`），光柱只负责空气里的部分。
 
 ## 常用调节点
 
@@ -185,12 +191,16 @@ tools/truck_probe.tscn  车祸事件回归测试（见「自测」）
 - 车祸事件：`truck_event.gd` 顶部的 `SIDE`（从哪一侧驶入，改符号换边）/ `SPEED` /
   `SPAWN_GAP` / `TRIGGER_Z`（走到路中间才触发）/ `LANE_MIN..MAX` / `SLOWMO_GAP` / `SLOWMO_SCALE` / `RESPAWN`；
   车的尺寸与轮位在 `truck.gd` 的 `L` / `W` / `AXLES`。
+- 车灯：`truck.gd` 的 `LAMP_Y` / `LAMP_Z`（灯面位置）、`BEAM_LEN` / `BEAM_FAR` /
+  `BEAM_PITCH`（光柱长度、张口、下压角）、`POOL_CENTER_X` / `POOL_HALF`（地面光斑）；
+  亮度在 `_beam()` / `_pool()` 的 `strength`，SpotLight 本身在 `_build_lights()`。
+  光柱变长之前先看一眼台面边缘 —— 超出 ±5.6 的部分会被裁掉，切口落在半空中很难看。
 - 台面裁剪范围：`kit.gd` 的 `PLATFORM_CLIP`（和 `street.gd` 的 `B` 必须一致）。
 
 ## 调试截图
 
 ```bash
-# 可玩版：8 张（全景 + 街道 + 门口 + 店内 + 货架过道 + 休息室 + 货车裁剪 + 货车压脸）
+# 可玩版：9 张（全景 + 街道 + 门口 + 店内 + 货架过道 + 休息室 + 货车裁剪 + 货车压脸 + 车头特写）
 ./Godot_v4.7.2-stable_linux.x86_64 --path . res://scenes/store_walk.tscn -- --shot
 
 # 只拍一张（调机位时用，省得全套跑一遍）：

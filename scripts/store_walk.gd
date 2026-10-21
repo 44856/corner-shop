@@ -421,22 +421,10 @@ func _take_shots() -> void:
 	hud.fade_in(0.0)
 	DirAccess.make_dir_recursive_absolute("res://shots")
 
-	# 先来一张和原场景同机位的全景，用来对照「编排备份」和「可玩版」的差别
-	var orbit := Camera3D.new()
-	orbit.fov = 40.0
-	orbit.near = 0.1
-	orbit.far = 200.0
-	add_child(orbit)
-	orbit.global_transform = _orbit_transform()
-	orbit.current = true
-	player.camera.current = false
-	for i in 10:
-		await get_tree().process_frame
-	await RenderingServer.frame_post_draw
-	get_viewport().get_texture().get_image().save_png("res://shots/walk_a_overview.png")
-	print("saved walk_a_overview")
-	orbit.queue_free()
-	player.camera.current = true
+	# 先来一张和原场景同机位的全景，用来对照「编排备份」和「可玩版」的差别。
+	# --only 时跳过：调单张的时候不用每次都等这张。
+	if only == "":
+		await _shot_overview()
 
 	var specs := [
 		{"name": "walk_b_street", "pos": SPAWN, "face": PI, "yaw": 0.0, "pitch": -0.12,
@@ -502,56 +490,102 @@ func _take_shots() -> void:
 		get_viewport().get_texture().get_image().save_png("res://shots/%s.png" % s["name"])
 		print("saved ", s["name"])
 
-	# ---- 货车：两张。一张验证台面裁剪，一张是压到人面前的构图 ----
-	if only != "":
-		get_tree().quit()
-		return
+	# ---- 货车：三张。裁剪 / 压到人面前 / 车头特写 ----
+	# --only 也管这三张：调车灯和光柱时不用把前面六张一起重拍
+	var want := func(n: String) -> bool:
+		return only == "" or only == n
+
 	env.tonemap_exposure = EXPOSE_OUT
 	hub.enabled = false
 	hud.hide_prompt()
 	hud.visible = false
 
-	# 车尾还在台面外（x = −5.6 以远）：只画台面内的那一段
-	truck_event.debug_show(-4.2, 3.6)
-	var tcam := Camera3D.new()
-	tcam.fov = 40.0
-	tcam.near = 0.1
-	tcam.far = 200.0
-	add_child(tcam)
-	# 高一点、偏南：把台面西缘那条线一起拍进去，切在哪儿才看得出来
-	tcam.global_position = Vector3(1.6, 6.0, 9.2)
-	tcam.look_at(Vector3(-4.9, 0.7, 3.3), Vector3.UP)
-	tcam.current = true
-	player.camera.current = false
-	for i in 10:
-		await get_tree().process_frame
-	await RenderingServer.frame_post_draw
-	get_viewport().get_texture().get_image().save_png("res://shots/walk_f_truck_clip.png")
-	print("saved walk_f_truck_clip")
-	tcam.queue_free()
-	player.camera.current = true
-	hud.visible = true
+	if want.call("walk_f_truck_clip"):
+		# 车尾还在台面外（x = −5.6 以远）：只画台面内的那一段
+		truck_event.debug_show(-4.2, 3.6)
+		var tcam := Camera3D.new()
+		tcam.fov = 40.0
+		tcam.near = 0.1
+		tcam.far = 200.0
+		add_child(tcam)
+		# 高一点、偏南：把台面西缘那条线一起拍进去，切在哪儿才看得出来
+		tcam.global_position = Vector3(1.6, 6.0, 9.2)
+		tcam.look_at(Vector3(-4.9, 0.7, 3.3), Vector3.UP)
+		tcam.current = true
+		player.camera.current = false
+		for i in 10:
+			await get_tree().process_frame
+		await RenderingServer.frame_post_draw
+		get_viewport().get_texture().get_image().save_png("res://shots/walk_f_truck_clip.png")
+		print("saved walk_f_truck_clip")
+		tcam.queue_free()
+		player.camera.current = true
+		hud.visible = true
 
-	# 站在马路中间、车从右侧压过来：这一张用侧机位，人、车头、店招同框
-	truck_event.debug_show(-3.9, 3.5)
-	player.global_position = Vector3(0.55, 0.0, 2.5)
-	player.face(-PI * 0.5)
-	var hcam := Camera3D.new()
-	hcam.fov = 46.0
-	hcam.near = 0.1
-	hcam.far = 200.0
-	add_child(hcam)
-	hcam.global_position = Vector3(3.75, 1.85, 5.15)
-	hcam.look_at(Vector3(-1.8, 1.05, 3.1), Vector3.UP)
-	hcam.current = true
-	player.camera.current = false
-	_update_shadow()
-	for i in 10:
-		await get_tree().process_frame
-	await RenderingServer.frame_post_draw
-	get_viewport().get_texture().get_image().save_png("res://shots/walk_g_truck_hit.png")
-	print("saved walk_g_truck_hit")
-	hcam.queue_free()
-	player.camera.current = true
+	if want.call("walk_g_truck_hit"):
+		# 站在马路中间、车从右侧压过来：这一张用侧机位，人、车头、店招同框
+		truck_event.debug_show(-3.9, 3.5)
+		player.global_position = Vector3(0.55, 0.0, 2.5)
+		player.face(-PI * 0.5)
+		var hcam := Camera3D.new()
+		hcam.fov = 46.0
+		hcam.near = 0.1
+		hcam.far = 200.0
+		add_child(hcam)
+		hcam.global_position = Vector3(3.75, 1.85, 5.15)
+		hcam.look_at(Vector3(-1.8, 1.05, 3.1), Vector3.UP)
+		hcam.current = true
+		player.camera.current = false
+		_update_shadow()
+		for i in 10:
+			await get_tree().process_frame
+		await RenderingServer.frame_post_draw
+		get_viewport().get_texture().get_image().save_png("res://shots/walk_g_truck_hit.png")
+		print("saved walk_g_truck_hit")
+		hcam.queue_free()
+		player.camera.current = true
+
+	if want.call("walk_i_truck_beam"):
+		# 车头特写：看格栅 / 灯组 / 雨刷这些细节，也看两道光柱怎么压在湿路面上
+		truck_event.debug_show(-1.2, 3.55)
+		var bcam := Camera3D.new()
+		bcam.fov = 42.0
+		bcam.near = 0.05
+		bcam.far = 200.0
+		add_child(bcam)
+		bcam.global_position = Vector3(4.30, 2.55, 7.60)
+		bcam.look_at(Vector3(0.70, 1.05, 3.40), Vector3.UP)
+		bcam.current = true
+		player.camera.current = false
+		player.visible = false
+		hud.visible = false
+		for i in 10:
+			await get_tree().process_frame
+		await RenderingServer.frame_post_draw
+		get_viewport().get_texture().get_image().save_png("res://shots/walk_i_truck_beam.png")
+		print("saved walk_i_truck_beam")
+		bcam.queue_free()
+		player.visible = true
+		player.camera.current = true
+		hud.visible = true
 
 	get_tree().quit()
+
+
+## 全景对照图（和微缩展示版同机位）
+func _shot_overview() -> void:
+	var orbit := Camera3D.new()
+	orbit.fov = 40.0
+	orbit.near = 0.1
+	orbit.far = 200.0
+	add_child(orbit)
+	orbit.global_transform = _orbit_transform()
+	orbit.current = true
+	player.camera.current = false
+	for i in 10:
+		await get_tree().process_frame
+	await RenderingServer.frame_post_draw
+	get_viewport().get_texture().get_image().save_png("res://shots/walk_a_overview.png")
+	print("saved walk_a_overview")
+	orbit.queue_free()
+	player.camera.current = true

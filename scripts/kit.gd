@@ -9,6 +9,7 @@ const SOFT := preload("res://shaders/soft_glow.gdshader")
 const GLASS := preload("res://shaders/glass.gdshader")
 const PAVING := preload("res://shaders/paving.gdshader")
 const WET := preload("res://shaders/wet_glow.gdshader")
+const BEAM := preload("res://shaders/headlamp.gdshader")
 
 static var _cache: Dictionary = {}
 static var _outline_cache: Dictionary = {}
@@ -84,6 +85,25 @@ static func _apply_clip(m: ShaderMaterial, clip: AABB) -> void:
 static func glow_clipped(color: Color, strength: float = 1.6, scan: float = 0.0,
 		clip: AABB = PLATFORM_CLIP) -> ShaderMaterial:
 	var m := glow(color, strength, scan).duplicate() as ShaderMaterial
+	_apply_clip(m, clip)
+	return m
+
+
+## 车灯光束 / 地面光池。参数直接透传给 headlamp.gdshader，裁剪参数一并打上。
+## 光柱也是「从场外开进来的东西」，不裁就会在底座外面亮着。
+static func headlamp(p: Dictionary, clip: AABB = PLATFORM_CLIP) -> ShaderMaterial:
+	var m := ShaderMaterial.new()
+	m.shader = BEAM
+	for k in p:
+		m.set_shader_parameter(k, p[k])
+	_apply_clip(m, clip)
+	return m
+
+
+## 带台面裁剪的柔光球（货车灯头光晕）。理由同 glow_clipped。
+static func soft_clipped(color: Color, strength: float = 0.4, power: float = 2.2,
+		clip: AABB = PLATFORM_CLIP) -> ShaderMaterial:
+	var m := soft(color, strength, power).duplicate() as ShaderMaterial
 	_apply_clip(m, clip)
 	return m
 

@@ -60,6 +60,11 @@ func _ready() -> void:
 		_check("车道在马路范围内（z 3.0~4.6）",
 			event._truck.global_position.z > 3.0 and event._truck.global_position.z < 4.6)
 		_check("材质带台面裁剪参数", _clip_ok(event._truck))
+		_check("车灯有可见光束（锥体 ×2）", _beam_count(event._truck) >= 2)
+		# Label3D 不吃裁剪着色器：车还在台面外时，车身上的字必须藏起来，
+		# 否则会孤零零飘在底座外面（曾经真的飘过）
+		await get_tree().process_frame
+		_check("台面外的车不显示车身文字", _labels_hidden(event._truck))
 
 	# ---- 4. 撞上 ----
 	var hit: bool = await _wait_until(func() -> bool: return event._hit_done, 4.0)
@@ -90,23 +95,64 @@ func _ready() -> void:
 
 ## 车身材质必须挂着「台面裁剪」——这是需求里「超出平台不渲染」的落点。
 ## 顺带核对裁剪盒子和台面尺寸一致，不然会出现一条看不见的裁切缝。
+##
+## 递归整棵树：光柱挂在灯头 pivot 下面，只查直接子节点会漏掉它们。
 func _clip_ok(truck: Node3D) -> bool:
-	for c in truck.get_children():
-		if not (c is MeshInstance3D):
-			continue
-		var m := (c as MeshInstance3D).material_override as ShaderMaterial
-		if m == null:
-			continue
-		if m.get_shader_parameter("clip_on") != true:
-			return false
-		var lo: Vector3 = m.get_shader_parameter("clip_min")
-		var hi: Vector3 = m.get_shader_parameter("clip_max")
-		if absf(lo.x + 5.6) > 0.001 or absf(hi.x - 5.6) > 0.001:
-			return false
-		if absf(lo.z + 5.6) > 0.001 or absf(hi.z - 5.6) > 0.001:
-			return false
-		return true
-	return false
+	var found := 0
+	var stack: Array = [truck]
+	while stack.size() > 0:
+		var n: Node = stack.pop_back()
+		for c in n.get_children():
+			stack.append(c)
+			if not (c is MeshInstance3D):
+				continue
+			var m := (c as MeshInstance3D).material_override as ShaderMaterial
+			if m == null:
+				continue
+			found += 1
+			if m.get_shader_parameter("clip_on") != true:
+				return false
+			var lo: Vector3 = m.get_shader_parameter("clip_min")
+			var hi: Vector3 = m.get_shader_parameter("clip_max")
+			if absf(lo.x + 5.6) > 0.001 or absf(hi.x - 5.6) > 0.001:
+				return false
+			if absf(lo.z + 5.6) > 0.001 or absf(hi.z - 5.6) > 0.001:
+				return false
+	return found > 0
+
+
+## 车身文字必须全部隐藏（车在台面外时）
+func _labels_hidden(truck: Node3D) -> bool:
+	var n := 0
+	var stack: Array = [truck]
+	while stack.size() > 0:
+		var node: Node = stack.pop_back()
+		for c in node.get_children():
+			stack.append(c)
+			if c is Label3D:
+				n += 1
+				if (c as Label3D).visible:
+					return false
+	return n > 0
+
+
+## 光束网格 = headlamp 着色器、非光池模式的那些 MeshInstance
+func _beam_count(truck: Node3D) -> int:
+	var n := 0
+	var stack: Array = [truck]
+	while stack.size() > 0:
+		var node: Node = stack.pop_back()
+		for c in node.get_children():
+			stack.append(c)
+			if not (c is MeshInstance3D):
+				continue
+			var m := (c as MeshInstance3D).material_override as ShaderMaterial
+			if m == null or m.shader == null:
+				continue
+			if m.shader.resource_path.ends_with("headlamp.gdshader") \
+					and m.get_shader_parameter("pool") != true:
+				n += 1
+	return n
 
 
 func _wait_until(pred: Callable, timeout: float) -> bool:
