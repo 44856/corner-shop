@@ -27,8 +27,14 @@ const DIALOGUE_SCRIPT := "res://dialogue/dog_01.txt"
 @export_group("交互")
 ## 玩家进入这个半径内才能对话（米，只算水平距离）
 @export var talk_radius := 2.4
-## 头顶提示文案
+## 头顶提示文案（只在自管交互时用）
 @export var prompt_text := "按 F 说话"
+## 是否由狗自己管「距离判定 + 按键 + 头顶提示」。
+##
+## 场景里若有 interaction_hub（城门那两个守卫就是走他那套），就把它置 false：
+## 提示改由 HUD 统一出、按键改由中枢统一分发，狗只留下 talk() 这个入口。
+## 两套同时在跑的话，一次按键会被两边各处理一次 —— 对话会开两遍。
+@export var self_interaction := true
 
 var _breath: Node3D
 var _tail: Node3D
@@ -174,12 +180,23 @@ func _process(delta: float) -> void:
 		_tail.rotation.y = sin(_t * (7.0 + 7.0 * _wag)) * 0.22 * _wag
 
 	if _prompt != null:
-		_prompt.visible = _can_talk()
+		_prompt.visible = self_interaction and _can_talk()
 
 
 # ---------------------------------------------------------------- 交互
 
+## 供 interaction_hub 调用：能不能说、说哪一段，判定仍然留在狗自己这里。
+## 返回 false 表示这一刻不该说话（没醒 / 正在对话 / 离得太远）。
+func talk() -> bool:
+	if not _can_talk():
+		return false
+	_dialogue.start(DIALOGUE_SCRIPT)
+	return true
+
+
 func _unhandled_input(event: InputEvent) -> void:
+	if not self_interaction:
+		return
 	if not event.is_action_pressed("interact"):
 		return
 	if not _can_talk():
