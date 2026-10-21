@@ -101,6 +101,23 @@ fi
 
 # ---------------------------------------------------------------- 迁移历史
 
+# 在 worktree 里跑是危险的：migrate 重写的是**整个仓库**的 refs，
+# 会波及主仓库和其它 worktree 正在检出的分支。必须在主仓库做。
+if [ -f "$ROOT/.git" ]; then
+	bad "当前目录是 git worktree，不是主仓库"
+	cat <<'EOF'
+
+`git lfs migrate --everything` 会重写整个仓库的 refs，包括其它 worktree
+正在检出的分支。在 worktree 里跑，会把主仓库的工作副本搞成一半新一半旧。
+
+请到主仓库执行（git worktree list 的第一行）：
+
+  cd /path/to/main-repo && ./tools/setup_lfs.sh
+
+EOF
+	exit 1
+fi
+
 if [ -n "$(git status --porcelain)" ]; then
 	echo "工作区不干净，migrate 会拒绝执行，也容易丢改动。"
 	echo "先 commit 或 stash，再回来："
@@ -108,9 +125,18 @@ if [ -n "$(git status --porcelain)" ]; then
 	exit 1
 fi
 
-if git lfs ls-files >/dev/null 2>&1 && [ -n "$(git lfs ls-files 2>/dev/null)" ]; then
-	info "已经有 lfs 指针文件，历史可能已经迁移过"
+# 先做完整备份。bundle 包含所有 refs（分支、标签），可以整棵恢复。
+BACKUP_DIR="$(dirname "$ROOT")"
+BACKUP="$BACKUP_DIR/$(basename "$ROOT")-backup-$(date +%Y%m%d-%H%M%S).bundle"
+echo "备份全部 refs 到："
+echo "  $BACKUP"
+if git bundle create "$BACKUP" --all >/dev/null 2>&1; then
+	ok "备份完成（$(du -h "$BACKUP" | cut -f1)）"
+else
+	bad "备份失败，中止"
+	exit 1
 fi
+echo ""
 
 cat <<EOF
 即将执行：
@@ -118,11 +144,13 @@ cat <<EOF
   git lfs migrate import --include="$PATTERNS" --everything
 
 影响：
-  · 重写本仓库全部历史（所有分支与标签的 commit hash 都会变）
-  · 迁移后必须 git push --force --all 与 --force --tags
+  · 重写本仓库全部历史（所有分支、标签、以及 origin/* 追踪引用的 commit hash 都会变）
+  · 迁移后 develop 等分支会与远端分叉，必须 git push --force --all 与 --force --tags
   · 所有协作者必须重新 clone，否则本地是普通 blob、远端是指针，会互相打架
+  · **所有其它 worktree 都要进各自的目录执行 git reset --hard**
 
-建议先打个备份：git bundle create ../corner-shop-backup.bundle --all
+回滚方式（如果结果不对）：
+  git fetch "$BACKUP" 'refs/*:refs/*'   # 会覆盖 refs，谨慎
 
 EOF
 
@@ -137,8 +165,12 @@ echo ""
 git lfs migrate import --include="$PATTERNS" --everything
 
 echo ""
-echo "迁移完成。接下来："
-echo "  1. git lfs ls-files | head          确认有指针文件"
-echo "  2. git push --force --all"
-echo "  3. git push --force --tags"
-echo "  4. 通知所有协作者：删掉本地仓库重新 clone"
+echo "迁移完成。接下来按顺序："
+echo "  1. git lfs ls-files | head        确认有指针文件"
+echo "  2. git worktree list              每个 worktree 进去 git reset --hard"
+echo "     （refs 被重写后，它们的工作副本还是旧内容）"
+echo "  3. git push --force --all"
+echo "  4. git push --force --tags"
+echo "  5. 通知所有协作者：删掉本地仓库重新 clone"
+echo ""
+echo "备份留在：$BACKUP"

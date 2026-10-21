@@ -236,9 +236,15 @@ git lfs install
 没装 lfs 时 `git add assets/...` 会直接报错——这是故意的：安全失败，好过把 15MB 的模型
 塞进普通对象、再等半年才发现仓库有 500MB。
 
-检查环境、迁移旧历史：
+**历史已于 2026-10-21 迁移完成**（28 个 commit 重写，47 个指针文件）。所以现在
+clone 之前必须装 lfs，否则 `assets/` 下拿到的是 130 字节的指针文本，
+Godot 会报资源加载失败——看起来像「少了东西」，其实是没装 lfs。
+
+检查环境（对新的 clone 或新机器有用）：
 
 ```bash
 ./tools/setup_lfs.sh --check     # 只检查，不动任何东西
-./tools/setup_lfs.sh             # 迁移历史（会重写 commit hash，需输入 yes 确认）
 ```
+
+`setup_lfs.sh` 的迁移功能已经用过一次。它拒绝在 worktree 里执行——`migrate --everything`
+重写的是整个仓库的 refs，在 worktree 里跑会把主仓库的工作副本搞成一半新一半旧。
