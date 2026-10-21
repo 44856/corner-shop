@@ -440,6 +440,23 @@ func _take_shots() -> void:
 		# 两块货架之间那条 0.80m 的过道：从东侧看进去，证明「真的走得进去」
 		{"name": "walk_e_aisle", "pos": Vector3(0.30, 0.25, -3.18), "face": -PI * 0.5, "yaw": 90.0,
 			"pitch": 0.0, "dist": 1.9, "door": true, "fov": 68.0, "shoulder": 0.26, "exp": EXPOSE_IN},
+		# 商品特写：站在过道东端沿货架看过去，三层排面、价签、分类牌一次拍全。
+		# 用自由机位而不是第三人称：0.83m 的过道塞不下 1.9m 摇臂，人会挡住半个货架。
+		{"name": "walk_j_goods", "free": Vector3(1.18, 1.50, -3.02),
+			"look": Vector3(-0.85, 0.96, -3.80), "door": true, "fov": 58.0, "exp": EXPOSE_IN,
+			"prompt": false},
+		# 南侧货架正面（进门第一眼看到的那一面）。过道只有 0.83m，只能广角贴脸拍。
+		{"name": "walk_k_goods_south", "free": Vector3(1.20, 1.46, -3.34),
+			"look": Vector3(-0.55, 0.92, -2.62), "door": true, "fov": 64.0, "exp": EXPOSE_IN,
+			"prompt": false},
+		# 冷柜正面：隔着四扇玻璃门看四层货（便当 / 饭团 / 瓶装 / 罐装）
+		{"name": "walk_l_fridge", "free": Vector3(0.92, 1.52, -3.36),
+			"look": Vector3(1.30, 1.32, -5.00), "door": true, "fov": 72.0, "exp": EXPOSE_IN,
+			"prompt": false},
+		# 杂志架 + 靠窗堆头：这两个是「商品陈列」里最容易被忽略的两处
+		{"name": "walk_m_magazine", "free": Vector3(0.55, 1.30, -1.86),
+			"look": Vector3(-1.20, 0.92, -1.95), "door": true, "fov": 62.0, "exp": EXPOSE_IN,
+			"prompt": false},
 		# 休息室：隔窗看进去（灯亮着、桌椅在，但进不去）。
 		# 这一张用自由机位：0.80m 的过道塞不下第三人称摇臂，
 		# 人往窗前一站就把窗挡死，不如直接给一台固定机位拍建筑本身。

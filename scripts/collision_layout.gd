@@ -144,11 +144,13 @@ static func _store(g: Node3D) -> void:
 
 	# 杂志架 / 促销堆头
 	var mg: Dictionary = L["magazine"]
-	_box(g, Vector3((mg["x0"] + mg["x1"]) * 0.5, Store.FLOOR + 0.55, (mg["z0"] + mg["z1"]) * 0.5),
-		Vector3(mg["x1"] - mg["x0"], 1.1, mg["z1"] - mg["z0"]))
+	# 高度跟着视觉走（货架现在是 1.20m 高，原来按 1.10 算，顶上会多出一截空气墙）
+	_box(g, Vector3((mg["x0"] + mg["x1"]) * 0.5, Store.FLOOR + 0.60, (mg["z0"] + mg["z1"]) * 0.5),
+		Vector3(mg["x1"] - mg["x0"], 1.20, mg["z1"] - mg["z0"]))
 	for p in L["promos"]:
-		var base: Vector3 = p
-		_box(g, base + Vector3(0, 0.28, 0), Vector3(0.62, 0.56, 0.42))
+		# 碰撞盒和视觉盒子必须同心。原来这里 +0.28，比看得见的纸箱高出 28cm ——
+		# 人会撞在堆头上方的一团空气里。
+		_box(g, p, Vector3(0.62, 0.56, 0.42))
 
 
 # ---------------------------------------------------------------- 街道设施

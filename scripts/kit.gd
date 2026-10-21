@@ -205,6 +205,36 @@ static func box(parent: Node3D, size: Vector3, pos: Vector3, mat: Material, rot:
 	return _finish(parent, mi, pos, rot, shadow)
 
 
+## 三棱柱：顶点朝上、沿 +Z 挤出，正面（三角形）正好朝 +Z。
+## 不用 PrismMesh 是因为它的朝向由引擎定死，而饭团这类包装必须能直接对齐
+## 「正面 = +Z」的约定 —— 否则每摆一个都要再猜一次欧拉角。
+static func prism(parent: Node3D, size: Vector3, pos: Vector3, mat: Material, rot: Vector3 = Vector3.ZERO, shadow: bool = true) -> MeshInstance3D:
+	var hw := size.x * 0.5
+	var hh := size.y * 0.5
+	var hd := size.z * 0.5
+	var apex := Vector3(0, hh, 0)
+	var left := Vector3(-hw, -hh, 0)
+	var right := Vector3(hw, -hh, 0)
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for v in [apex, left, right]:
+		st.add_vertex(v + Vector3(0, 0, hd))
+	for v in [apex, right, left]:
+		st.add_vertex(v - Vector3(0, 0, hd))
+	# 侧面按 b→a / c→b / a→c 的顺序，法线才朝外（反过来会整片被背面剔除）
+	for edge in [[left, apex], [right, left], [apex, right]]:
+		var p0: Vector3 = edge[0]
+		var p1: Vector3 = edge[1]
+		for v in [p0 + Vector3(0, 0, hd), p1 + Vector3(0, 0, hd), p1 - Vector3(0, 0, hd),
+				p0 + Vector3(0, 0, hd), p1 - Vector3(0, 0, hd), p0 - Vector3(0, 0, hd)]:
+			st.add_vertex(v)
+	st.generate_normals()
+	var mi := MeshInstance3D.new()
+	mi.mesh = st.commit()
+	mi.material_override = mat
+	return _finish(parent, mi, pos, rot, shadow)
+
+
 static func plane(parent: Node3D, size: Vector2, pos: Vector3, mat: Material, rot: Vector3 = Vector3.ZERO, shadow: bool = false) -> MeshInstance3D:
 	var m := PlaneMesh.new()
 	m.size = size
