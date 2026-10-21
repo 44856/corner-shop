@@ -12,6 +12,7 @@ extends Node3D
 ##   店内物件    —— 冷柜 / 货架 / 服务铃 / 门口的猫，按 E 出反馈
 ##   摄像机      —— 第三人称弹簧臂跟随，街道 ↔ 店内自动切换焦段与距离
 ##   声音        —— 雨声 / 店内低频 / 自动门叮咚 / 服务铃（全部程序化或复用现有 wav）
+##   马路车祸    —— 进过店之后走下马路，右侧驶来一辆大货车（见 truck_event.gd）
 
 const Street := preload("res://scripts/street.gd")
 const Store := preload("res://scripts/store.gd")
@@ -23,6 +24,7 @@ const PlayerController := preload("res://scripts/player_controller.gd")
 const Hud := preload("res://scripts/hud.gd")
 const Hub := preload("res://scripts/interaction_hub.gd")
 const Sfx := preload("res://scripts/sfx.gd")
+const TruckEvent := preload("res://scripts/truck_event.gd")
 
 ## 出生点：人行道上、雨棚底下，正对店门
 const SPAWN := Vector3(0.35, 0.17, 0.95)
@@ -37,8 +39,8 @@ const CAM_IN := {"dist": 1.6, "height": 1.55, "fov": 70.0, "shoulder": 0.28}
 const EXPOSE_OUT := 1.12
 const EXPOSE_IN := 0.92
 
-## 店内包围盒（判定「在店里」用）
-const INTERIOR := AABB(Vector3(-1.46, 0.0, -5.26), Vector3(4.32, 3.0, 4.12))
+## 店内包围盒（判定「在店里」用）。东墙从 3.1 推到 4.30，休息室也在里面。
+const INTERIOR := AABB(Vector3(-1.46, 0.0, -5.26), Vector3(5.52, 3.0, 4.12))
 
 ## 开场镜头的起点：原微缩场景的机位
 const ORBIT := {"yaw": 26.0, "pitch": 14.5, "dist": 17.0, "target": Vector3(0.0, 1.2, -0.95)}
@@ -47,13 +49,17 @@ var player: CharacterBody3D
 var door                       # autodoor.gd（动态调用，故不加类型）
 var hud                        # hud.gd
 var hub                        # interaction_hub.gd
+var truck_event                # truck_event.gd
 var env: Environment
 
 var _inside := false
+var _zone := "side"
 var _shooting := false
 var _shadow: MeshInstance3D
 var _rain: AudioStreamPlayer
 var _hum: AudioStreamPlayer
+var _intro_cam: Camera3D
+var _intro_tween: Tween
 
 
 func _ready() -> void:
@@ -69,6 +75,7 @@ func _ready() -> void:
 	_setup_hud()
 	_setup_interactions()
 	_setup_audio()
+	_setup_truck_event()
 
 	if "--shot" in OS.get_cmdline_user_args():
 		_take_shots()
@@ -175,10 +182,13 @@ func _setup_interactions() -> void:
 
 	# 冷柜：站在它东侧 0.9m 处就能按
 	hub.add_target(Vector3(1.35, 1.0, -4.55), 1.75, "拉开冷柜", _on_fridge)
-	# 货架：两块货架中间那条过道
-	hub.add_target(Vector3(0.0, 1.0, -3.85), 1.55, "翻一翻货架", _on_rack)
-	# 收银台：沿东墙，正面朝 −X
-	hub.add_target(Vector3(2.58, 1.0, -3.0), 1.35, "按服务铃", _on_bell)
+	# 货架：两块货架中间那条过道（货架东端收到 0.60，中心跟着西移）
+	hub.add_target(Vector3(-0.20, 1.0, -3.85), 1.55, "翻一翻货架", _on_rack)
+	# 收银台：加长到 2.2m 之后铃铛在 (1.68, −2.92)。
+	# inside_only：服务铃只在店里按得响 —— 隔着东墙 / 空调外机从后巷按，
+	# 距离判定能过（1.4m），但那不是「按铃」，是「穿墙」。视线检查在中枢里做。
+	hub.add_target(Vector3(1.68, 1.0, -2.92), 1.40, "按服务铃", _on_bell,
+		func() -> bool: return _inside)
 	# 门口的猫
 	hub.add_target(Vector3(0.98, 0.4, -0.52), 1.3, "摸摸猫", _on_cat)
 
@@ -186,6 +196,14 @@ func _setup_interactions() -> void:
 func _setup_audio() -> void:
 	_rain = _looping_player("res://audio/rain_loop.wav", -15.0)
 	_hum = _looping_player("res://audio/drone_loop.wav", -40.0)
+
+
+## 马路车祸：独立节点，自己盯着「人是不是站在车行道上」
+func _setup_truck_event() -> void:
+	truck_event = TruckEvent.new()
+	truck_event.name = "TruckEvent"
+	add_child(truck_event)
+	truck_event.bind(player, hud)
 
 
 func _looping_player(path: String, db: float) -> AudioStreamPlayer:
@@ -209,26 +227,44 @@ func _play_intro() -> void:
 	player.input_locked = true
 	player.camera.current = false
 
-	var cam := Camera3D.new()
-	cam.name = "IntroCam"
-	cam.fov = 40.0
-	cam.near = 0.1
-	cam.far = 200.0
-	add_child(cam)
-	cam.current = true
+	_intro_cam = Camera3D.new()
+	_intro_cam.name = "IntroCam"
+	_intro_cam.fov = 40.0
+	_intro_cam.near = 0.1
+	_intro_cam.far = 200.0
+	add_child(_intro_cam)
+	_intro_cam.current = true
 
 	var from := _orbit_transform()
 	var to: Transform3D = player.camera.global_transform
-	cam.global_transform = from
+	_intro_cam.global_transform = from
 
 	hud.fade_in(1.3)
 
-	var tw := create_tween()
-	tw.tween_method(
+	var cam := _intro_cam
+	_intro_tween = create_tween()
+	_intro_tween.tween_method(
 		func(v: float) -> void: cam.global_transform = from.interpolate_with(to, v),
 		0.0, 1.0, 3.6
 	).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-	tw.finished.connect(func() -> void: _on_intro_finished(cam))
+	_intro_tween.finished.connect(func() -> void: _on_intro_finished(cam))
+
+
+## 跳过开场推镜，直接落到第三人称（调试 / 实机快速验证用）。
+## 补间必须 kill 掉：留着的话三秒后它会再跑一遍 _on_intro_finished，
+## 把已经锁上的输入重新解开 —— 车祸演到一半人突然能走，很难查。
+func skip_intro() -> void:
+	if _intro_tween != null and _intro_tween.is_valid():
+		_intro_tween.kill()
+	if _intro_cam != null and is_instance_valid(_intro_cam):
+		_intro_cam.queue_free()
+	_intro_cam = null
+	_intro_tween = null
+	hud.fade_in(0.0)
+	player.camera.current = true
+	player.input_locked = false
+	door.enabled = true
+	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
 func _orbit_transform() -> Transform3D:
@@ -241,7 +277,10 @@ func _orbit_transform() -> Transform3D:
 
 
 func _on_intro_finished(cam: Camera3D) -> void:
-	cam.queue_free()
+	if is_instance_valid(cam):
+		cam.queue_free()
+	_intro_cam = null
+	_intro_tween = null
 	player.camera.current = true
 	player.input_locked = false
 	door.enabled = true
@@ -260,9 +299,9 @@ func _process(delta: float) -> void:
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 	var p: Vector3 = player.global_position
-	var inside := INTERIOR.has_point(p)
-	if inside != _inside:
-		_on_zone_changed(inside)
+	var zone := _zone_at(p)
+	if zone != _zone:
+		_on_zone_changed(zone)
 
 	_update_shadow()
 
@@ -275,13 +314,40 @@ func _process(delta: float) -> void:
 		_hum.volume_db = lerpf(_hum.volume_db, hum_db, 1.0 - exp(-1.6 * delta))
 
 
-func _on_zone_changed(inside: bool) -> void:
-	_inside = inside
-	hud.set_zone("店内 · HOSHI MART" if inside else "店外 · 人行道", inside)
+## 三个区域：店内 / 人行道 / 车行道。
+## 人行道是 L 形（含 0.17m 宽的路缘石，外沿 x −2.07 / z 2.07），
+## 其余落在台面上的都是沥青路面。
+func _zone_at(p: Vector3) -> String:
+	if INTERIOR.has_point(p):
+		return "in"
+	if p.z > 2.07 or p.x < -2.07:
+		return "road"
+	return "side"
+
+
+func _on_zone_changed(zone: String) -> void:
+	var was_inside := _inside
+	_zone = zone
+	_inside = zone == "in"
+
+	if _inside and truck_event != null:
+		# 「进过店」是车祸事件的前置条件，只记第一次
+		truck_event.notify_store_entered()
+
+	match zone:
+		"in":
+			hud.set_zone("店内 · HOSHI MART", true)
+		"road":
+			hud.set_zone("马路 · 车行道", false)
+		_:
+			hud.set_zone("店外 · 人行道", false)
+
 	# 截图模式下机位由 _take_shots 直接指定，别让区域切换把它拉回去
 	if _shooting:
 		return
-	if inside:
+	if _inside == was_inside:
+		return
+	if _inside:
 		player.set_camera_profile(CAM_IN["dist"], CAM_IN["height"], CAM_IN["fov"],
 			CAM_IN["shoulder"], 3.6)
 		hud.toast("暖光、冷柜的嗡嗡声，还有收银台上那本翻到一半的杂志。", 4.0)
@@ -334,16 +400,180 @@ func _play_at(pos: Vector3, stream: AudioStream, db: float = -6.0) -> void:
 
 # ---------------------------------------------------------------- 截图
 
+## 调试用：`--only=walk_h_breakroom` 只拍这一张。
+## 调机位的时候全套跑一遍要两分钟，只拍一张十几秒，改十次也不心疼。
+func _only_shot() -> String:
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--only="):
+			return a.substr(7)
+	return ""
+
+
 func _take_shots() -> void:
 	_shooting = true
+	var only := _only_shot()
 	# 不锁输入：交互中枢在锁定状态下不出提示，而提示本身是要拍进图里的
 	player.input_locked = false
 	# 截图时手动控制门的开合，别让感应器把「关着」的那张也打开
 	door.enabled = false
+	# 摆拍的时候别让车祸事件自己触发
+	truck_event.auto_trigger = false
 	hud.fade_in(0.0)
 	DirAccess.make_dir_recursive_absolute("res://shots")
 
-	# 先来一张和原场景同机位的全景，用来对照「编排备份」和「可玩版」的差别
+	# 先来一张和原场景同机位的全景，用来对照「编排备份」和「可玩版」的差别。
+	# --only 时跳过：调单张的时候不用每次都等这张。
+	if only == "":
+		await _shot_overview()
+
+	var specs := [
+		{"name": "walk_b_street", "pos": SPAWN, "face": PI, "yaw": 0.0, "pitch": -0.12,
+			"dist": 3.9, "door": false, "fov": 52.0, "shoulder": 0.10, "exp": EXPOSE_OUT,
+			"prompt": false},
+		{"name": "walk_c_door", "pos": Vector3(0.35, 0.17, -0.62), "face": PI, "yaw": 0.0,
+			"pitch": -0.05, "dist": 2.6, "door": true, "fov": 58.0, "shoulder": 0.10, "exp": 1.06,
+			"prompt": false},
+		# 进门后往北看：左边货架、右边加长到 2.2m 的柜台、柜台后面是休息室。
+		# 机位必须留在店内 —— 后退 2.2m 会退到玻璃门外，拍出来是隔着橱窗往里看。
+		{"name": "walk_d_inside", "pos": Vector3(0.72, 0.25, -3.05), "face": PI, "yaw": 6.0,
+			"pitch": -0.04, "dist": 1.95, "door": true, "fov": 66.0, "shoulder": 0.52, "exp": EXPOSE_IN},
+		# 两块货架之间那条 0.80m 的过道：从东侧看进去，证明「真的走得进去」
+		{"name": "walk_e_aisle", "pos": Vector3(0.30, 0.25, -3.18), "face": -PI * 0.5, "yaw": 90.0,
+			"pitch": 0.0, "dist": 1.9, "door": true, "fov": 68.0, "shoulder": 0.26, "exp": EXPOSE_IN},
+		# 休息室：隔窗看进去（灯亮着、桌椅在，但进不去）。
+		# 这一张用自由机位：0.80m 的过道塞不下第三人称摇臂，
+		# 人往窗前一站就把窗挡死，不如直接给一台固定机位拍建筑本身。
+		{"name": "walk_h_breakroom", "free": Vector3(0.95, 1.52, -2.42),
+			"look": Vector3(2.80, 1.26, -2.98), "door": true, "fov": 60.0, "exp": EXPOSE_IN,
+			"prompt": false},
+	]
+
+	for s in specs:
+		if only != "" and s["name"] != only:
+			continue
+		door.set_open(s["door"], true)
+		env.tonemap_exposure = s["exp"]
+		hub.enabled = s.get("prompt", true)
+		if not hub.enabled:
+			hud.hide_prompt()
+
+		if s.has("free"):
+			var fc := Camera3D.new()
+			fc.fov = s["fov"]
+			fc.near = 0.05
+			fc.far = 200.0
+			add_child(fc)
+			fc.global_position = s["free"]
+			fc.look_at(s["look"], Vector3.UP)
+			fc.current = true
+			player.camera.current = false
+			player.visible = false
+			_update_shadow()
+			for i in 12:
+				await get_tree().process_frame
+			await RenderingServer.frame_post_draw
+			get_viewport().get_texture().get_image().save_png("res://shots/%s.png" % s["name"])
+			print("saved ", s["name"])
+			fc.queue_free()
+			player.visible = true
+			player.camera.current = true
+			continue
+
+		player.global_position = s["pos"]
+		player.face(s["face"])
+		player.snap_camera(s["dist"], 1.45, s["fov"], s["shoulder"])
+		player.cam_rig.rotation = Vector3(s["pitch"], s["yaw"], 0.0)
+		_update_shadow()
+		for i in 12:
+			await get_tree().process_frame
+		await RenderingServer.frame_post_draw
+		get_viewport().get_texture().get_image().save_png("res://shots/%s.png" % s["name"])
+		print("saved ", s["name"])
+
+	# ---- 货车：三张。裁剪 / 压到人面前 / 车头特写 ----
+	# --only 也管这三张：调车灯和光柱时不用把前面六张一起重拍
+	var want := func(n: String) -> bool:
+		return only == "" or only == n
+
+	env.tonemap_exposure = EXPOSE_OUT
+	hub.enabled = false
+	hud.hide_prompt()
+	hud.visible = false
+
+	if want.call("walk_f_truck_clip"):
+		# 车尾还在台面外（x = −5.6 以远）：只画台面内的那一段
+		truck_event.debug_show(-4.2, 3.6)
+		var tcam := Camera3D.new()
+		tcam.fov = 40.0
+		tcam.near = 0.1
+		tcam.far = 200.0
+		add_child(tcam)
+		# 高一点、偏南：把台面西缘那条线一起拍进去，切在哪儿才看得出来
+		tcam.global_position = Vector3(1.6, 6.0, 9.2)
+		tcam.look_at(Vector3(-4.9, 0.7, 3.3), Vector3.UP)
+		tcam.current = true
+		player.camera.current = false
+		for i in 10:
+			await get_tree().process_frame
+		await RenderingServer.frame_post_draw
+		get_viewport().get_texture().get_image().save_png("res://shots/walk_f_truck_clip.png")
+		print("saved walk_f_truck_clip")
+		tcam.queue_free()
+		player.camera.current = true
+		hud.visible = true
+
+	if want.call("walk_g_truck_hit"):
+		# 站在马路中间、车从右侧压过来：这一张用侧机位，人、车头、店招同框
+		truck_event.debug_show(-3.9, 3.5)
+		player.global_position = Vector3(0.55, 0.0, 2.5)
+		player.face(-PI * 0.5)
+		var hcam := Camera3D.new()
+		hcam.fov = 46.0
+		hcam.near = 0.1
+		hcam.far = 200.0
+		add_child(hcam)
+		hcam.global_position = Vector3(3.75, 1.85, 5.15)
+		hcam.look_at(Vector3(-1.8, 1.05, 3.1), Vector3.UP)
+		hcam.current = true
+		player.camera.current = false
+		_update_shadow()
+		for i in 10:
+			await get_tree().process_frame
+		await RenderingServer.frame_post_draw
+		get_viewport().get_texture().get_image().save_png("res://shots/walk_g_truck_hit.png")
+		print("saved walk_g_truck_hit")
+		hcam.queue_free()
+		player.camera.current = true
+
+	if want.call("walk_i_truck_beam"):
+		# 车头特写：看格栅 / 灯组 / 雨刷这些细节，也看两道光柱怎么压在湿路面上
+		truck_event.debug_show(-1.2, 3.55)
+		var bcam := Camera3D.new()
+		bcam.fov = 42.0
+		bcam.near = 0.05
+		bcam.far = 200.0
+		add_child(bcam)
+		bcam.global_position = Vector3(4.30, 2.55, 7.60)
+		bcam.look_at(Vector3(0.70, 1.05, 3.40), Vector3.UP)
+		bcam.current = true
+		player.camera.current = false
+		player.visible = false
+		hud.visible = false
+		for i in 10:
+			await get_tree().process_frame
+		await RenderingServer.frame_post_draw
+		get_viewport().get_texture().get_image().save_png("res://shots/walk_i_truck_beam.png")
+		print("saved walk_i_truck_beam")
+		bcam.queue_free()
+		player.visible = true
+		player.camera.current = true
+		hud.visible = true
+
+	get_tree().quit()
+
+
+## 全景对照图（和微缩展示版同机位）
+func _shot_overview() -> void:
 	var orbit := Camera3D.new()
 	orbit.fov = 40.0
 	orbit.near = 0.1
@@ -359,36 +589,3 @@ func _take_shots() -> void:
 	print("saved walk_a_overview")
 	orbit.queue_free()
 	player.camera.current = true
-
-	var specs := [
-		{"name": "walk_b_street", "pos": SPAWN, "face": PI, "yaw": 0.0, "pitch": -0.12,
-			"dist": 3.9, "door": false, "fov": 52.0, "shoulder": 0.10, "exp": EXPOSE_OUT,
-			"prompt": false},
-		{"name": "walk_c_door", "pos": Vector3(0.35, 0.17, -0.62), "face": PI, "yaw": 0.0,
-			"pitch": -0.05, "dist": 2.6, "door": true, "fov": 58.0, "shoulder": 0.10, "exp": 1.06,
-			"prompt": false},
-		{"name": "walk_d_inside", "pos": Vector3(1.4, 0.25, -3.6), "face": PI, "yaw": 6.0,
-			"pitch": -0.04, "dist": 1.95, "door": true, "fov": 66.0, "shoulder": 0.34, "exp": EXPOSE_IN},
-		# 两块货架之间那条 0.83m 的过道：从东侧看进去，证明「真的走得进去」
-		{"name": "walk_e_aisle", "pos": Vector3(0.3, 0.25, -3.18), "face": -PI * 0.5, "yaw": 90.0,
-			"pitch": 0.0, "dist": 1.9, "door": true, "fov": 68.0, "shoulder": 0.26, "exp": EXPOSE_IN},
-	]
-
-	for s in specs:
-		player.global_position = s["pos"]
-		player.face(s["face"])
-		player.snap_camera(s["dist"], 1.45, s["fov"], s["shoulder"])
-		player.cam_rig.rotation = Vector3(s["pitch"], s["yaw"], 0.0)
-		door.set_open(s["door"], true)
-		env.tonemap_exposure = s["exp"]
-		hub.enabled = s.get("prompt", true)
-		if not hub.enabled:
-			hud.hide_prompt()
-		_update_shadow()
-		for i in 12:
-			await get_tree().process_frame
-		await RenderingServer.frame_post_draw
-		get_viewport().get_texture().get_image().save_png("res://shots/%s.png" % s["name"])
-		print("saved ", s["name"])
-
-	get_tree().quit()

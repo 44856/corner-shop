@@ -39,6 +39,8 @@ var _prompt_text: Label
 var _toast: Label
 var _zone_chip: Label
 var _fade: ColorRect
+var _flash: ColorRect
+var _flash_tween: Tween
 var _toast_tween: Tween
 ## 提示面板的显隐补间。必须只保留一个：show/hide 各自 create_tween 的话，
 ## 快速进出交互范围时两个补间会同时写 modulate:a，后结束的那个决定最终值 ——
@@ -225,6 +227,14 @@ func _build_controls(root: Control) -> void:
 
 
 func _build_fade(root: Control) -> void:
+	# 白闪压在黑场底下：先加的是 flash，后加的 fade 盖在它上面，
+	# 这样「撞一下白闪」不会把已经在淡出的黑场顶掉
+	_flash = ColorRect.new()
+	_flash.color = Color(1, 1, 1, 0)
+	_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_flash.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.add_child(_flash)
+
 	_fade = ColorRect.new()
 	_fade.color = Color(0, 0, 0, 1)
 	_fade.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -281,6 +291,17 @@ func hide_toast() -> void:
 func set_zone(text: String, accent: bool = false) -> void:
 	_zone_chip.text = text
 	_zone_chip.add_theme_color_override("font_color", accent_color if accent else MUTED)
+
+
+## 全屏闪一下。和 fade 分开：fade 是黑场（剧情用），flash 是瞬时高光（撞击用）
+func flash(color: Color = Color(1.0, 1.0, 1.0, 0.85), seconds: float = 0.24) -> void:
+	if _flash == null:
+		return
+	_flash.color = color
+	if _flash_tween != null and _flash_tween.is_valid():
+		_flash_tween.kill()
+	_flash_tween = create_tween()
+	_flash_tween.tween_property(_flash, "color:a", 0.0, seconds).set_ease(Tween.EASE_OUT)
 
 
 ## 从黑场淡入。传 0 就直接跳过（截图模式用）。

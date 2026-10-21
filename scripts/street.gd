@@ -56,11 +56,15 @@ static func _ground(g: Node3D) -> void:
 	var walk := K.box(g, Vector3(w, WALK_Y, d), Vector3((WALK_X0 + B) * 0.5, WALK_Y * 0.5, (WALK_Z1 - B) * 0.5), walk_mat, Vector3.ZERO, false)
 	walk.name = "Sidewalk"
 
-	# 路缘石
+	# 路缘石。顶面必须和人行道齐平（WALK_Y）：
+	# 原来做成 0.2 高、比地块高出 4cm，而 collision_layout.gd 里只有 0.16 ——
+	# 人物站在路边时，这 4cm 没有碰撞的石头会正好切进靴子里。
+	# 外移 1cm 是为了让顶面不和人行道顶面共面（共面会 z-fighting 闪一条缝）。
 	var curb := K.toon(Color("#63666c"), {"shade": 0.5, "rim": 0.28, "line": 0.007})
-	K.box(g, Vector3(0.17, 0.2, d), Vector3(WALK_X0 - 0.075, 0.1, (WALK_Z1 - B) * 0.5), curb)
-	K.box(g, Vector3(w, 0.2, 0.17), Vector3((WALK_X0 + B) * 0.5, 0.1, WALK_Z1 + 0.075), curb)
-	K.cyl(g, 0.15, 0.2, Vector3(WALK_X0 + 0.02, 0.1, WALK_Z1 - 0.02), curb, Vector3.ZERO, 12)
+	K.box(g, Vector3(0.17, WALK_Y, d), Vector3(WALK_X0 - 0.085, WALK_Y * 0.5, (WALK_Z1 - B) * 0.5), curb)
+	K.box(g, Vector3(w, WALK_Y, 0.17), Vector3((WALK_X0 + B) * 0.5, WALK_Y * 0.5, WALK_Z1 + 0.085), curb)
+	# 转角圆石抬高 1mm：它压在人行道角上，不抬就和人行道顶面打架
+	K.cyl(g, 0.15, WALK_Y + 0.001, Vector3(WALK_X0 + 0.02, (WALK_Y + 0.001) * 0.5, WALK_Z1 - 0.02), curb, Vector3.ZERO, 12)
 
 	# 店面贴地的暗部
 	K.box(g, Vector3(w - 0.2, 0.012, 0.06), Vector3((WALK_X0 + B) * 0.5, WALK_Y + 0.004, -0.93), K.toon(Color("#2c2f36"), {"shade": 0.7, "line": 0.0}), Vector3.ZERO, false)

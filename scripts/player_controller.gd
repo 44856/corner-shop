@@ -102,6 +102,18 @@ var _cam_fov_t := 0.0
 var _cam_shoulder_t := 0.0
 var _cam_blend := 4.0
 
+# 交互时的朝向锁定：按 E 之后先转过去面向对象，短暂优先于「朝移动方向」
+var _face_yaw_target := 0.0
+var _face_hold := 0.0
+
+# 受击表现：击飞（外力接管速度）与镜头抖动
+var _knock_vel := Vector3.ZERO
+var _knocked := false
+var _knock_left := 0.0
+var _shake_amp := 0.0
+var _shake_dur := 0.0
+var _shake_left := 0.0
+
 
 func _ready() -> void:
 	_ensure_actions()
@@ -218,6 +230,7 @@ func set_camera_profile(dist: float, height: float, fov: float,
 
 
 func _process(delta: float) -> void:
+	_update_shake(delta)
 	if not _cam_auto:
 		return
 	var k := 1.0 - exp(-_cam_blend * delta)
@@ -225,6 +238,22 @@ func _process(delta: float) -> void:
 	cam_rig.position.y = lerpf(cam_rig.position.y, _cam_h_t, k)
 	camera.fov = lerpf(camera.fov, _cam_fov_t, k)
 	camera.h_offset = lerpf(camera.h_offset, _cam_shoulder_t, k)
+
+
+## 镜头抖动：只动相机节点的 v_offset / roll，不碰弹簧臂 ——
+## 弹簧臂每帧都要做碰撞回缩，抖它的位置会被解算吃掉，看起来像没抖。
+func _update_shake(delta: float) -> void:
+	if _shake_left <= 0.0:
+		if _shake_amp > 0.0:
+			_shake_amp = 0.0
+			camera.v_offset = 0.0
+			camera.rotation.z = 0.0
+		return
+	_shake_left = maxf(0.0, _shake_left - delta)
+	var k := clampf(_shake_left / maxf(_shake_dur, 0.001), 0.0, 1.0)
+	var a := _shake_amp * k * k
+	camera.v_offset = randf_range(-a, a)
+	camera.rotation.z = randf_range(-a, a) * 0.4
 
 
 ## 立即跳到某个机位（截图 / 传送用），不做平滑
@@ -240,6 +269,26 @@ func snap_camera(dist: float, height: float, fov: float, shoulder: float = 0.0) 
 func face(angle: float) -> void:
 	if visual != null:
 		visual.rotation.y = angle
+	_face_hold = 0.0
+
+
+## 转向世界坐标里的某个点（交互时面向冷柜 / 货架 / 服务铃 / 猫）。
+## 只锁很短一段时间：转过去之后仍然交还给移动方向，
+## 不会因为「按过一次 E」就把转身手感改掉。
+func look_at_point(target: Vector3, hold: float = 0.55) -> void:
+	var d := target - global_position
+	d.y = 0.0
+	if d.length_squared() < 0.0004:
+		return
+	_face_yaw_target = atan2(d.x, d.z)
+	_face_hold = hold
+
+
+## 把视角扳回某个朝向（复位 / 演出用）。yaw 用角度，0 = 相机在角色身后朝 −Z。
+func set_view(yaw_deg: float, pitch: float = -0.18) -> void:
+	_yaw = deg_to_rad(yaw_deg)
+	_pitch = clampf(pitch, pitch_min, pitch_max)
+	_apply_camera()
 
 
 # ---------------------------------------------------------------- 输入
@@ -265,6 +314,11 @@ func _unhandled_input(event: InputEvent) -> void:
 # ---------------------------------------------------------------- 物理
 
 func _physics_process(delta: float) -> void:
+	# 被撞飞期间：外力接管水平速度，落地滑一小段再交还控制权
+	if _knocked:
+		_apply_knock(delta)
+		return
+
 	# 醒来期间：清掉操作意图，但保留重力与贴地
 	# （不要用 set_physics_process(false)，否则角色会卡在半空）
 	if input_locked:
@@ -282,7 +336,13 @@ func _physics_process(delta: float) -> void:
 
 	_apply_horizontal(delta, wish_dir, speed)
 	_apply_vertical(delta)
-	_apply_facing(delta, wish_dir)
+	if _face_hold > 0.0:
+		# 交互朝向：比常规转身快一点，0.5 秒内转过去，之后就交还给移动方向
+		_face_hold = maxf(0.0, _face_hold - delta)
+		visual.rotation.y = lerp_angle(visual.rotation.y, _face_yaw_target,
+			1.0 - exp(-turn_speed * 1.4 * delta))
+	else:
+		_apply_facing(delta, wish_dir)
 
 	move_and_slide()
 	_update_locomotion(delta)
@@ -388,3 +448,63 @@ func _update_timers(delta: float) -> void:
 func _apply_camera() -> void:
 	# Node3D 默认欧拉序 YXZ：先偏航再俯仰，正是第一/三人称需要的
 	cam_rig.rotation = Vector3(_pitch, _yaw, 0.0)
+
+
+# ---------------------------------------------------------------- 受击
+
+## 被外力撞飞：锁输入、按冲量飞出去，落地减速滑停。
+## 不在这里做位移补间 —— 补间和 move_and_slide 抢位置会把角色塞进墙里，
+## 交给物理走，撞到墙 / 路缘会自己停住。
+func knock(impulse: Vector3, seconds: float = 2.0) -> void:
+	_knock_vel = impulse
+	_knocked = true
+	_knock_left = seconds
+	input_locked = true
+	_walk_amount = 0.0
+	if actor != null and actor.has_method("set_air_pose"):
+		actor.set_air_pose()
+
+
+func _apply_knock(delta: float) -> void:
+	velocity = _knock_vel
+	if is_on_floor() and velocity.y <= 0.0:
+		# 只有「往下 / 平着」的时候才压地；向上那一下不能被地面吃掉，
+		# 否则击飞永远飞不起来（这一帧 is_on_floor() 还是 true）
+		velocity.y = -0.1
+		velocity.x = move_toward(velocity.x, 0.0, 9.0 * delta)
+		velocity.z = move_toward(velocity.z, 0.0, 9.0 * delta)
+	else:
+		velocity.y -= _fall_gravity * delta
+
+	move_and_slide()
+	_knock_vel = velocity
+	_knock_left -= delta
+
+	if _knock_left <= 0.0 and is_on_floor():
+		_knocked = false
+		velocity = Vector3.ZERO
+		_was_airborne = false
+		if visual != null:
+			visual.position.y = 0.0
+
+
+## 传送 / 复位：清掉速度、击飞状态与输入锁。位置由调用方直接设。
+func reset_motion() -> void:
+	velocity = Vector3.ZERO
+	_knock_vel = Vector3.ZERO
+	_knocked = false
+	_knock_left = 0.0
+	_walk_amount = 0.0
+	_walk_phase = 0.0
+	_was_airborne = false
+	_face_hold = 0.0
+	if visual != null:
+		visual.position.y = 0.0
+	input_locked = false
+
+
+## 镜头抖动。amp 是相机垂直偏移的幅度（米），0.1 已经很凶了
+func add_shake(amp: float, seconds: float) -> void:
+	_shake_amp = maxf(_shake_amp, amp)
+	_shake_dur = maxf(seconds, 0.01)
+	_shake_left = _shake_dur

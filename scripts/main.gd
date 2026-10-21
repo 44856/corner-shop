@@ -236,7 +236,8 @@ func _setup_actors() -> void:
 func _setup_rain() -> void:
 	var p := GPUParticles3D.new()
 	p.name = "Rain"
-	p.amount = 2400
+	# 雨量：2400 → 1200，下落频率（= amount / lifetime）减半
+	p.amount = 1200
 	p.lifetime = 2.4
 	p.preprocess = 2.2
 	p.fixed_fps = 60
@@ -250,9 +251,10 @@ func _setup_rain() -> void:
 	p.process_material = pm
 
 	var quad := QuadMesh.new()
-	quad.size = Vector2(0.011, 0.3)
+	# 和 world_env.gd 保持同一档雨量：长宽各减半，可见面积 1/4
+	quad.size = Vector2(0.0055, 0.15)
 	# 把面片整体挂在粒子位置的上方，触面时雨丝不会戳穿地表
-	quad.center_offset = Vector3(0.0, 0.15, 0.0)
+	quad.center_offset = Vector3(0.0, 0.075, 0.0)
 	var m := StandardMaterial3D.new()
 	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
@@ -270,8 +272,8 @@ func _setup_rain_ripples() -> void:
 	var surfaces := [
 		{"pos": Vector3(0.0, 0.007, 0.0), "size": Vector2(11.2, 11.2), "strength": 0.36, "dry": false},
 		{"pos": Vector3(1.85, 0.168, 0.5), "size": Vector2(7.5, 2.8), "strength": 0.26, "dry": true},
-		{"pos": Vector3(4.28, 0.196, -3.2), "size": Vector2(2.3, 4.5), "strength": 0.24, "dry": false},
-		{"pos": Vector3(0.7, 3.712, -3.2), "size": Vector2(4.8, 4.6), "strength": 0.3, "dry": false},
+		{"pos": Vector3(4.83, 0.196, -3.2), "size": Vector2(1.06, 4.5), "strength": 0.24, "dry": false},
+		{"pos": Vector3(1.3, 3.712, -3.2), "size": Vector2(6.0, 4.6), "strength": 0.3, "dry": false},
 	]
 
 	var grp := Node3D.new()
@@ -292,7 +294,7 @@ func _setup_rain_ripples() -> void:
 		if s["dry"]:
 			# 雨棚正下方是干的
 			mat.set_shader_parameter("dry_min", Vector2(-1.76, -0.96))
-			mat.set_shader_parameter("dry_max", Vector2(3.16, 0.2))
+			mat.set_shader_parameter("dry_max", Vector2(4.36, 0.2))
 		mi.material_override = mat
 		grp.add_child(mi)
 

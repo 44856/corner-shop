@@ -5,7 +5,9 @@ const K := preload("res://scripts/kit.gd")
 # 便利店主体：外墙 / 玻璃立面 / 自动门 / 雨棚 / 招牌 / 屋顶 / 店内
 
 const X0 := -1.7
-const X1 := 3.1
+## 东墙从 3.1 推到 4.30：让出「柜台 + 收银员站位 + 休息室」这条 3.5m 的进深。
+## 代价是后巷从 2.35m 收窄到 1.06m（见 props.gd 的 _alley）。
+const X1 := 4.30
 const Z0 := -5.5
 const Z1 := -0.9
 const FLOOR := 0.17
@@ -35,29 +37,41 @@ static func build(root: Node3D, opts: Dictionary = {}) -> void:
 static func layout(walkable: bool) -> Dictionary:
 	if walkable:
 		return {
-			# 两块横向货架，x -0.95..0.95，中间留 0.83m 过道
+			# 两块横向货架，x -0.95..0.60，中间留 0.83m 过道。
+			# 东端从 0.95 收到 0.60：柜台前面要让出 0.80m 的选购过道。
 			"racks": [
-				{"x0": -0.95, "x1": 0.95, "z": -3.85},
-				{"x0": -0.95, "x1": 0.95, "z": -2.50},
+				{"x0": -0.95, "x1": 0.60, "z": -3.85},
+				{"x0": -0.95, "x1": 0.60, "z": -2.50},
 			],
 			# 冷柜贴后墙，前面留 0.85m 站立区
 			"fridge": {"x0": 0.15, "x1": 2.55, "z0": -5.38, "z1": -4.96},
-			# 收银台沿东墙摆，正面朝 −X（绕 Y 转 −90°）。
-			# cx 贴到 2.58：台面背后正好抵住内墙（2.88），过道留出 1.33m。
-			"counter": {"cx": 2.58, "cz": -3.00, "rot": -90.0, "w": 1.1, "d": 0.6},
+			# 收银台：长度 1.1 → 2.2（面积 0.66 → 1.32 m²，正好翻倍），
+			# 沿东侧纵向摆，正面朝 −X。台面背后留 0.67m 收银员站位（x 2.03..2.70），
+			# 站位背后就是休息室的隔墙 —— 收银员的背对着员工休息室，和真店一样。
+			"counter": {"cx": 1.70, "cz": -2.70, "rot": -90.0, "w": 2.2, "d": 0.6},
 			"magazine": {"x0": -1.48, "x1": -1.03, "z0": -2.65, "z1": -1.25},
-			"promos": [Vector3(-0.55, FLOOR + 0.3, -1.35), Vector3(2.45, FLOOR + 0.3, -1.45)],
+			"promos": [Vector3(-0.55, FLOOR + 0.3, -1.35), Vector3(2.30, FLOOR + 0.3, -1.45)],
+			# 员工休息室：占东侧一整条 1.38 × 4.16 = 5.74 m²，
+			# 约等于改造前店堂面积（4.36 × 4.16 = 18.14 m²）的 1/3。
+			# 不可进入：门是关着的，隔墙整面都带碰撞（见 collision_layout.gd）。
+			"break_room": {
+				"x0": 2.70, "x1": 4.08, "z0": -5.28, "z1": -1.12,
+				"door_z0": -4.90, "door_z1": -4.00,
+				"window_z0": -3.55, "window_z1": -2.35,
+			},
 		}
 	return {
 		"racks": [
-			{"x0": -1.20, "x1": 2.30, "z": -4.25},
-			{"x0": -1.20, "x1": 2.30, "z": -3.20},
-			{"x0": -1.20, "x1": 2.30, "z": -2.15},
+			{"x0": -1.20, "x1": 3.40, "z": -4.25},
+			{"x0": -1.20, "x1": 3.40, "z": -3.20},
+			{"x0": -1.20, "x1": 3.40, "z": -2.15},
 		],
 		"fridge": {"x0": 0.15, "x1": 2.55, "z0": -5.38, "z1": -4.96},
-		"counter": {"cx": 2.10, "cz": -1.55, "rot": 0.0, "w": 1.1, "d": 0.6},
+		"counter": {"cx": 3.30, "cz": -1.55, "rot": 0.0, "w": 1.1, "d": 0.6},
 		"magazine": {"x0": -1.475, "x1": -1.025, "z0": -2.65, "z1": -1.25},
 		"promos": [Vector3(-0.55, FLOOR + 0.3, -1.35), Vector3(1.75, FLOOR + 0.3, -1.40)],
+		# 展示版不做休息室，东侧直接摆一排货架填满橱窗
+		"break_room": {},
 	}
 
 ## 门叶几何（视觉与碰撞共用）。两扇门各走一条轨道，错开 3cm 免得 z-fighting。
@@ -121,8 +135,8 @@ static func _facade(g: Node3D, auto_door: bool = false) -> void:
 	var glass := K.glass(Color(0.45, 0.62, 0.8, 0.08), 0.35)
 	var f := K.group(g, "Facade")
 
-	# 竖向分隔
-	for mx in [-1.48, -0.42, -0.30, 1.00, 1.12, 2.88]:
+	# 竖向分隔。2.70 是休息室隔墙的落点，4.08 是新的东墙角。
+	for mx in [-1.48, -0.42, -0.30, 1.00, 1.12, 2.70, 4.08]:
 		K.box(f, Vector3(0.09, 1.86, 0.16), Vector3(mx, 1.64, GLASS_Z), frame)
 	# 门框更粗
 	K.box(f, Vector3(0.1, 2.4, 0.18), Vector3(-0.36, 1.37, GLASS_Z), frame)
@@ -131,7 +145,22 @@ static func _facade(g: Node3D, auto_door: bool = false) -> void:
 
 	# 窗玻璃
 	K.box(f, Vector3(0.9, 1.82, 0.02), Vector3(-0.95, 1.64, GLASS_Z), glass, Vector3.ZERO, false)
-	K.box(f, Vector3(1.7, 1.82, 0.02), Vector3(2.0, 1.64, GLASS_Z), glass, Vector3.ZERO, false)
+	K.box(f, Vector3(1.5, 1.82, 0.02), Vector3(1.91, 1.64, GLASS_Z), glass, Vector3.ZERO, false)
+
+	# 东段（2.70..4.08）不是玻璃，是休息室的外墙：
+	# 店面不是整面通玻璃 —— 员工休息室不该开在橱窗里。
+	# 只留一条高窗（透光不透人）和一块 STAFF ONLY 铭牌。
+	var br: Dictionary = layout(true)["break_room"]
+	var brw: float = br["x1"] - br["x0"]
+	var brc: float = (br["x0"] + br["x1"]) * 0.5
+	var wall_mat := K.toon(Color("#918a7c"), {"shade": 0.42, "rim": 0.18, "line": 0.009})
+	K.box(f, Vector3(brw, 2.0, 0.16), Vector3(brc, 1.55, GLASS_Z), wall_mat)
+	K.box(f, Vector3(0.86, 0.32, 0.03), Vector3(brc, 2.24, GLASS_Z + 0.09),
+		K.toon(Color("#8fa3ad"), {"shade": 0.9, "rim": 0.2, "line": 0.004,
+			"emit": Color("#2a3a44"), "emit_amt": 0.25}), Vector3.ZERO, false)
+	K.box(f, Vector3(0.42, 0.2, 0.03), Vector3(brc, 1.42, GLASS_Z + 0.09),
+		K.toon(Color("#1e242b"), {"shade": 0.7, "line": 0.005}), Vector3.ZERO, false)
+	K.label(f, "STAFF ONLY", Vector3(brc, 1.42, GLASS_Z + 0.105), 0.062, Color("#e6dfd0"))
 
 	# 自动门（双扇）
 	# auto_door 模式下门叶交给 autodoor.gd：它要把玻璃 + 门框 + 把手打包成可滑动、
@@ -171,9 +200,9 @@ static func _facade(g: Node3D, auto_door: bool = false) -> void:
 	K.label(f, "SALE", Vector3(-1.1, 1.67, GLASS_Z + 0.035), 0.11, Color("#fff2e2"))
 	K.label(f, "-20%", Vector3(-1.1, 1.5, GLASS_Z + 0.035), 0.095, Color("#ffe9d6"))
 	var poster_b := K.toon(Color("#e2c05e"), {"shade": 0.85, "line": 0.004, "rim": 0.0})
-	K.quad(f, Vector2(0.32, 0.42), Vector3(2.45, 1.62, GLASS_Z + 0.02), poster_b)
-	K.label(f, "NEW", Vector3(2.45, 1.69, GLASS_Z + 0.035), 0.095, Color("#22293a"))
-	K.label(f, "HOT", Vector3(2.45, 1.54, GLASS_Z + 0.035), 0.095, Color("#b23a28"))
+	K.quad(f, Vector2(0.32, 0.42), Vector3(2.30, 1.62, GLASS_Z + 0.02), poster_b)
+	K.label(f, "NEW", Vector3(2.30, 1.69, GLASS_Z + 0.035), 0.095, Color("#22293a"))
+	K.label(f, "HOT", Vector3(2.30, 1.54, GLASS_Z + 0.035), 0.095, Color("#b23a28"))
 
 
 # ---------------------------------------------------------------- 西侧外墙
@@ -247,20 +276,21 @@ static func _awning(g: Node3D) -> void:
 	var green := K.toon(Color("#17564a"), {"shade": 0.5, "rim": 0.25, "line": 0.008})
 	var white := K.toon(Color("#dddcd2"), {"shade": 0.55, "rim": 0.2, "line": 0.006})
 
-	K.box(a, Vector3(4.9, 0.09, 1.1), Vector3(0.7, 2.6, -0.38), green, Vector3(7.0, 0, 0))
-	K.box(a, Vector3(4.86, 0.03, 0.2), Vector3(0.7, 2.53, 0.09), white, Vector3(7.0, 0, 0))
+	# 雨棚跟着店面一起加宽：−1.75..4.35（原来到 3.15，休息室那段会漏雨）
+	K.box(a, Vector3(6.1, 0.09, 1.1), Vector3(1.3, 2.6, -0.38), green, Vector3(7.0, 0, 0))
+	K.box(a, Vector3(6.06, 0.03, 0.2), Vector3(1.3, 2.53, 0.09), white, Vector3(7.0, 0, 0))
 	# 前缘板
-	K.box(a, Vector3(4.9, 0.19, 0.07), Vector3(0.7, 2.45, 0.16), green)
-	K.box(a, Vector3(4.9, 0.045, 0.02), Vector3(0.7, 2.38, 0.2), white)
+	K.box(a, Vector3(6.1, 0.19, 0.07), Vector3(1.3, 2.45, 0.16), green)
+	K.box(a, Vector3(6.1, 0.045, 0.02), Vector3(1.3, 2.38, 0.2), white)
 	# 雨棚白色条纹
-	for sx in [-1.15, -0.25, 0.65, 1.55, 2.45]:
+	for sx in [-1.15, -0.25, 0.65, 1.55, 2.45, 3.35]:
 		K.box(a, Vector3(0.17, 0.012, 1.12), Vector3(sx, 2.652, -0.38), white, Vector3(7.0, 0, 0), false)
 
 	# 雨棚下灯带
-	K.box(a, Vector3(4.4, 0.02, 0.07), Vector3(0.7, 2.51, -0.02), K.glow(Color("#ffe3b4"), 1.9), Vector3.ZERO, false)
+	K.box(a, Vector3(5.6, 0.02, 0.07), Vector3(1.3, 2.51, -0.02), K.glow(Color("#ffe3b4"), 1.9), Vector3.ZERO, false)
 	# 斜撑
 	var strut_mat := K.toon(Color("#2f3741"), {"shade": 0.6, "line": 0.005})
-	for sx in [-1.3, 0.7, 2.7]:
+	for sx in [-1.3, 0.8, 2.6, 4.2]:
 		K.strut(a, Vector3(sx, 3.1, Z1 + 0.01), Vector3(sx, 2.6, 0.06), 0.02, strut_mat, 6)
 	# 落水管
 	K.cyl(a, 0.045, 2.4, Vector3(-1.42, 1.35, 0.19), strut_mat, Vector3.ZERO, 8)
@@ -273,14 +303,14 @@ static func _signage(g: Node3D) -> void:
 	var board_z := Z1 + 0.055
 	var indigo := K.toon(Color("#131c33"), {"shade": 0.7, "rim": 0.3, "line": 0.008, "emit": Color("#0a1c33"), "emit_amt": 0.4})
 
-	K.box(s, Vector3(4.86, 0.64, 0.06), Vector3(0.7, 3.11, board_z), indigo)
+	K.box(s, Vector3(5.8, 0.64, 0.06), Vector3(1.3, 3.11, board_z), indigo)
 	# 三色品牌条
-	K.box(s, Vector3(4.86, 0.045, 0.065), Vector3(0.7, 2.82, board_z + 0.002), K.glow(Color("#2fbf71"), 1.25))
+	K.box(s, Vector3(5.8, 0.045, 0.065), Vector3(1.3, 2.82, board_z + 0.002), K.glow(Color("#2fbf71"), 1.25))
 	K.box(s, Vector3(1.5, 0.045, 0.065), Vector3(-0.75, 2.82, board_z + 0.004), K.glow(Color("#ff8b3d"), 1.25))
-	K.box(s, Vector3(0.9, 0.045, 0.065), Vector3(2.35, 2.82, board_z + 0.004), K.glow(Color("#3fa9ff"), 1.25))
+	K.box(s, Vector3(0.9, 0.045, 0.065), Vector3(3.60, 2.82, board_z + 0.004), K.glow(Color("#3fa9ff"), 1.25))
 
-	K.label(s, "HOSHI MART", Vector3(0.66, 3.25, board_z + 0.04), 0.32, Color("#ffffff"), Vector3.ZERO, 11, Color("#bfe4ff"))
-	K.label(s, "OPEN 24 HOURS", Vector3(0.66, 2.93, board_z + 0.04), 0.075, Color("#7fc7f2"))
+	K.label(s, "HOSHI MART", Vector3(1.20, 3.25, board_z + 0.04), 0.32, Color("#ffffff"), Vector3.ZERO, 11, Color("#bfe4ff"))
+	K.label(s, "OPEN 24 HOURS", Vector3(1.20, 2.93, board_z + 0.04), 0.075, Color("#7fc7f2"))
 
 	# 屋顶灯箱立柱
 	var pylon := K.group(s, "Pylon", Vector3(-1.45, TOP + 0.12, Z1 - 0.05))
@@ -342,11 +372,11 @@ static func _roof(g: Node3D) -> void:
 	# 前檐栏杆
 	var rail := K.toon(Color("#5c626a"), {"shade": 0.55, "rim": 0.3, "line": 0.004})
 	var rx := -1.5
-	while rx < 3.1:
+	while rx < X1:
 		K.box(r, Vector3(0.03, 0.62, 0.03), Vector3(rx, TOP + 0.31, Z1 + 0.02), rail)
 		rx += 0.75
-	K.strut(r, Vector3(-1.55, TOP + 0.62, Z1 + 0.02), Vector3(3.12, TOP + 0.62, Z1 + 0.02), 0.022, rail, 6)
-	K.strut(r, Vector3(-1.55, TOP + 0.34, Z1 + 0.02), Vector3(3.12, TOP + 0.34, Z1 + 0.02), 0.016, rail, 6)
+	K.strut(r, Vector3(-1.55, TOP + 0.62, Z1 + 0.02), Vector3(X1 + 0.02, TOP + 0.62, Z1 + 0.02), 0.022, rail, 6)
+	K.strut(r, Vector3(-1.55, TOP + 0.34, Z1 + 0.02), Vector3(X1 + 0.02, TOP + 0.34, Z1 + 0.02), 0.016, rail, 6)
 
 	# 屋顶小航空灯
 	K.sphere(r, 0.07, Vector3(0.75, TOP + 0.12, -1.35), K.glow(Color("#ff5a3a"), 2.2), Vector3.ZERO, 8, 1.0, false)
@@ -387,8 +417,10 @@ static func _interior(g: Node3D, walkable: bool) -> void:
 	var cd: float = cspec["d"]
 	K.box(counter, Vector3(cw, 0.92, cd), Vector3(0, 0.46, 0), K.toon(Color("#a39d90"), {"shade": 0.85, "line": 0.0}))
 	K.box(counter, Vector3(cw + 0.06, 0.06, cd + 0.06), Vector3(0, 0.95, 0), K.toon(Color("#aca698"), {"shade": 0.9, "line": 0.0}))
-	K.box(counter, Vector3(0.32, 0.24, 0.28), Vector3(0.25, 1.1, -0.05), K.toon(Color("#bcc0c6"), {"shade": 0.9, "line": 0.0}))
-	K.box(counter, Vector3(0.2, 0.1, 0.02), Vector3(0.25, 1.15, 0.09), K.glow(Color("#9fe6c4"), 1.1))
+	# 收银机：靠收银员那一侧、压在柜台南端。
+	# 别摆在台面正中 —— 正中正好挡住对内小窗，隔着窗什么都看不见。
+	K.box(counter, Vector3(0.32, 0.24, 0.28), Vector3(0.68, 1.1, -0.18), K.toon(Color("#bcc0c6"), {"shade": 0.9, "line": 0.0}))
+	K.box(counter, Vector3(0.2, 0.1, 0.02), Vector3(0.68, 1.15, -0.04), K.glow(Color("#9fe6c4"), 1.1))
 	K.box(counter, Vector3(0.95, 0.03, 0.1), Vector3(-0.05, 2.6, -0.05), K.glow(Color("#ffe9c9"), 1.7), Vector3.ZERO, false)
 	# 服务铃（交互目标就摆在台面上，看得见才按得下去）
 	K.cyl(counter, 0.055, 0.05, Vector3(-0.22, 1.0, 0.02), K.toon(Color("#c9a24a"), {"shade": 0.55, "rim": 0.5, "line": 0.004}), Vector3.ZERO, 12)
@@ -413,14 +445,25 @@ static func _interior(g: Node3D, walkable: bool) -> void:
 		for j in 6:
 			K.box(it, Vector3(0.12, 0.16, 0.12), base + Vector3(-0.22 + (j % 3) * 0.22, 0.36 + (j / 3) * 0.18, -0.1 + (j % 2) * 0.15), K.toon(promo_cols[i % 2], {"shade": 0.9, "line": 0.0}), Vector3.ZERO, false)
 
-	# walkable 时东墙会空出一大片，挂两排壁架补上（只做视觉，不占过道）
+	# 东侧改成员工休息室（不可进入）。隔墙 / 门 / 窗都在 _break_room 里，
+	# 原来贴东墙的两排壁架被它取代了。
+	if walkable and not L["break_room"].is_empty():
+		_break_room(it, L["break_room"], shelf, shelf_dark)
+
+	# 收银员站位背后的墙（休息室隔墙）上挂香烟架：只占墙面不占地面，
+	# 收银员才有完整的 0.67m 站立位。
 	if walkable:
-		for wz in [-4.75, -4.05]:
-			K.box(it, Vector3(0.22, 0.05, 1.15), Vector3(2.78, FLOOR + 1.25, wz), shelf)
-			K.box(it, Vector3(0.22, 0.05, 1.15), Vector3(2.78, FLOOR + 1.75, wz), shelf)
-			for k in 6:
-				var pc: Color = [Color("#e0453a"), Color("#3f7fd9"), Color("#f0c93f"), Color("#5cbf7a")][k % 4]
-				K.box(it, Vector3(0.14, 0.2, 0.16), Vector3(2.78, FLOOR + 1.38 + (k / 6) * 0.5, wz - 0.5 + k * 0.19), K.toon(pc, {"shade": 0.95, "line": 0.0}), Vector3.ZERO, false)
+		var cz: float = cspec["cz"]
+		# 香烟架挂在窗南侧那段实墙上（窗在 z −3.55..−2.35）。
+		# 原来以柜台中心为准、长 1.30，正好压在窗上：既挡光，
+		# 又在玻璃上投出一排横杠，看着像窗框坏了。
+		# 背板：三块横板单挂在墙上会「飘」，加一块薄背板才像个货架
+		K.box(it, Vector3(0.02, 0.96, 1.02), Vector3(2.575, FLOOR + 1.58, cz + 0.95), shelf_dark)
+		for i in 3:
+			K.box(it, Vector3(0.16, 0.05, 1.00), Vector3(2.56, FLOOR + 1.30 + i * 0.30, cz + 0.95), shelf)
+		# 收银员的凳子（雨夜无人店：椅子空着，但位置是留出来的）
+		K.cyl(it, 0.17, 0.05, Vector3(2.36, FLOOR + 0.44, cz - 0.35), K.toon(Color("#4a4038"), {"shade": 0.7, "line": 0.0}), Vector3.ZERO, 12)
+		K.cyl(it, 0.03, 0.42, Vector3(2.36, FLOOR + 0.21, cz - 0.35), K.toon(Color("#5c6066"), {"line": 0.0}), Vector3.ZERO, 8)
 
 
 	# 店内暖光
@@ -469,3 +512,134 @@ static func _rack(parent: Node3D, x0: float, x1: float, z: float, shelf: Materia
 			var c: Color = colors[rng.randi() % colors.size()]
 			K.box(parent, Vector3(wd, ht, rng.randf_range(0.16, 0.28)), Vector3(px + wd * 0.5, y + ht * 0.5, z + rng.randf_range(-0.06, 0.06)), K.toon(c, {"shade": 0.95, "line": 0.0}), Vector3.ZERO, false)
 			px += wd + 0.032
+
+
+# ---------------------------------------------------------------- 员工休息室
+
+## 东侧一整条 1.38 × 4.16 = 5.74m² 的休息室，约等于改造前店堂（18.14m²）的 1/3。
+##
+## **不可进入**：门是关着的，隔墙整面都有碰撞（collision_layout.gd），
+## 玩家只能隔着对内小窗看见里面 —— 有桌椅、储物柜、微波炉，但没人。
+## 这也是它存在的意义：让「这家店有人上夜班」这件事有落点，而不是一句设定。
+static func _break_room(parent: Node3D, br: Dictionary, shelf: Material, dark: Material) -> void:
+	var g := K.group(parent, "BreakRoom")
+	var x0: float = br["x0"]
+	var x1: float = br["x1"]
+	var z0: float = br["z0"]
+	var z1: float = br["z1"]
+	var dz0: float = br["door_z0"]
+	var dz1: float = br["door_z1"]
+	var wz0: float = br["window_z0"]
+	var wz1: float = br["window_z1"]
+	var t := 0.12
+	var y0 := FLOOR
+	var y1 := 2.87
+	var cx := x0 - t * 0.5
+
+	var wall := K.toon(Color("#8d8678"), {"shade": 0.62, "rim": 0.0, "line": 0.0})
+	var trim := K.toon(Color("#5d564b"), {"shade": 0.6, "line": 0.005})
+
+	# 隔墙按「实墙 / 门洞 / 窗洞」分段拼 —— 盒子挖不了洞，只能绕开
+	var segs := [
+		[z0, dz0, y0, y1],        # 门北侧
+		[dz1, wz0, y0, y1],       # 门与窗之间
+		[wz1, z1, y0, y1],        # 窗南侧
+		[dz0, dz1, 2.20, y1],     # 门楣
+		[wz0, wz1, y0, 1.00],     # 窗台以下
+		[wz0, wz1, 1.90, y1],     # 窗楣以上
+	]
+	for s in segs:
+		K.box(g, Vector3(t, float(s[3]) - float(s[2]), float(s[1]) - float(s[0])),
+			Vector3(cx, (float(s[2]) + float(s[3])) * 0.5, (float(s[0]) + float(s[1])) * 0.5), wall)
+
+	# 关着的门：门框 + 门板 + 上半截磨砂玻璃（透光，看不清人）
+	var dc := (dz0 + dz1) * 0.5
+	K.box(g, Vector3(t + 0.04, 2.03, 0.06), Vector3(cx, y0 + 1.015, dz0 - 0.03), trim)
+	K.box(g, Vector3(t + 0.04, 2.03, 0.06), Vector3(cx, y0 + 1.015, dz1 + 0.03), trim)
+	K.box(g, Vector3(t + 0.04, 0.06, dz1 - dz0 + 0.12), Vector3(cx, y0 + 2.23, dc), trim)
+	K.box(g, Vector3(0.05, 2.03, dz1 - dz0 - 0.02), Vector3(cx + 0.02, y0 + 1.015, dc),
+		K.toon(Color("#6a6055"), {"shade": 0.55, "rim": 0.15, "line": 0.005}))
+	K.box(g, Vector3(0.02, 0.62, dz1 - dz0 - 0.18), Vector3(cx + 0.05, y0 + 1.58, dc),
+		K.glass(Color(0.62, 0.66, 0.62, 0.35), 0.1), Vector3.ZERO, false)
+	K.cyl(g, 0.014, 0.12, Vector3(cx + 0.07, y0 + 1.02, dz1 - 0.18), trim, Vector3(0, 0, 90), 6)
+	K.label(g, "STAFF", Vector3(cx + 0.075, y0 + 1.80, dc), 0.055, Color("#d8d2c4"), Vector3(0, -90, 0))
+
+	# 对内小窗：卖场这边能看见里面的灯和桌椅。
+	# 玻璃要够清（alpha 0.06）：这是「展示用」的窗，不是磨砂隔断，
+	# 糊一点整间屋子就只剩一片奶白。
+	K.box(g, Vector3(t + 0.04, 0.05, wz1 - wz0 + 0.06), Vector3(cx, 1.00, (wz0 + wz1) * 0.5), trim)
+	K.box(g, Vector3(t + 0.04, 0.05, wz1 - wz0 + 0.06), Vector3(cx, 1.90, (wz0 + wz1) * 0.5), trim)
+	K.box(g, Vector3(0.02, 0.9, wz1 - wz0), Vector3(cx, 1.45, (wz0 + wz1) * 0.5),
+		K.glass(Color(0.74, 0.80, 0.82, 0.06), 0.03), Vector3.ZERO, false)
+
+	# ---- 室内陈设（只在窗外 / 门玻璃外看得到，玩家进不来）----
+	var wood := K.toon(Color("#7a6448"), {"shade": 0.55, "rim": 0.15, "line": 0.005})
+	var steel := K.toon(Color("#8b9099"), {"shade": 0.6, "rim": 0.35, "line": 0.005})
+	var rx := (x0 + x1) * 0.5
+
+	# 北端：水槽 + 微波炉
+	K.box(g, Vector3(1.20, 0.86, 0.46), Vector3(rx, y0 + 0.43, -5.02), wood)
+	K.box(g, Vector3(1.24, 0.05, 0.5), Vector3(rx, y0 + 0.88, -5.02), K.toon(Color("#a9a396"), {"shade": 0.9, "line": 0.0}))
+	K.box(g, Vector3(0.34, 0.06, 0.28), Vector3(rx - 0.24, y0 + 0.87, -5.02), K.toon(Color("#2b3138"), {"shade": 0.8, "line": 0.0}), Vector3.ZERO, false)
+	K.cyl(g, 0.014, 0.24, Vector3(rx - 0.24, y0 + 1.0, -5.16), steel, Vector3.ZERO, 6)
+	K.cyl(g, 0.012, 0.12, Vector3(rx - 0.24, y0 + 1.11, -5.10), steel, Vector3(90, 0, 0), 6)
+	K.box(g, Vector3(0.42, 0.28, 0.34), Vector3(rx + 0.28, y0 + 1.05, -5.02), K.toon(Color("#c8c3b8"), {"shade": 0.75, "rim": 0.2, "line": 0.005}))
+	K.box(g, Vector3(0.3, 0.18, 0.01), Vector3(rx + 0.28, y0 + 1.05, -4.84), K.toon(Color("#3a3f46"), {"shade": 0.9, "line": 0.0}), Vector3.ZERO, false)
+
+	# 员工冰箱
+	K.box(g, Vector3(0.5, 0.9, 0.5), Vector3(x1 - 0.26, y0 + 0.45, -4.42), K.toon(Color("#b8bcc0"), {"shade": 0.85, "rim": 0.25, "line": 0.005}))
+	K.box(g, Vector3(0.02, 0.9, 0.5), Vector3(x1 - 0.51, y0 + 0.45, -4.42), K.toon(Color("#9aa0a6"), {"line": 0.0}), Vector3.ZERO, false)
+	K.cyl(g, 0.012, 0.14, Vector3(x1 - 0.53, y0 + 0.72, -4.30), steel, Vector3.ZERO, 6)
+
+	# 桌椅：一张小桌 + 两把凳子（夜班的人坐这儿吃个饭）。
+	# 桌子压在小窗正对面（窗 z −3.55..−2.35，桌心 −2.98），
+	# 从卖场看进去先看到桌子和杯面，才知道这屋是干什么的。
+	var tz := -2.98
+	K.box(g, Vector3(0.78, 0.05, 0.56), Vector3(rx + 0.06, y0 + 0.72, tz), wood)
+	for lx in [-0.32, 0.32]:
+		for lz in [-0.2, 0.2]:
+			K.box(g, Vector3(0.04, 0.72, 0.04), Vector3(rx + 0.06 + lx, y0 + 0.36, tz + lz), steel, Vector3.ZERO, false)
+	K.cyl(g, 0.16, 0.04, Vector3(rx - 0.34, y0 + 0.45, tz + 0.26), K.toon(Color("#3f4750"), {"shade": 0.7, "line": 0.0}), Vector3.ZERO, 10)
+	K.cyl(g, 0.025, 0.43, Vector3(rx - 0.34, y0 + 0.22, tz + 0.26), steel, Vector3.ZERO, 6)
+	K.cyl(g, 0.16, 0.04, Vector3(rx + 0.42, y0 + 0.45, tz - 0.30), K.toon(Color("#3f4750"), {"shade": 0.7, "line": 0.0}), Vector3.ZERO, 10)
+	K.cyl(g, 0.025, 0.43, Vector3(rx + 0.42, y0 + 0.22, tz - 0.30), steel, Vector3.ZERO, 6)
+	# 桌上：一个杯面 + 一罐咖啡
+	K.cyl(g, 0.055, 0.1, Vector3(rx - 0.06, y0 + 0.79, tz + 0.08), K.toon(Color("#e8e2d2"), {"shade": 0.9, "line": 0.0}), Vector3.ZERO, 10)
+	K.cyl(g, 0.033, 0.12, Vector3(rx + 0.16, y0 + 0.80, tz - 0.08), K.toon(Color("#c04a3a"), {"shade": 0.85, "line": 0.0}), Vector3.ZERO, 8)
+
+	# 南端：一排储物柜（3 格）
+	for i in 3:
+		var lz0 := -2.28 + i * 0.37
+		K.box(g, Vector3(0.34, 1.88, 0.35), Vector3(x1 - 0.17, y0 + 0.94, lz0), K.toon(Color("#5f6a72"), {"shade": 0.6, "rim": 0.25, "line": 0.005}))
+		K.box(g, Vector3(0.02, 1.72, 0.29), Vector3(x1 - 0.345, y0 + 0.94, lz0), K.toon(Color("#4b555c"), {"line": 0.0}), Vector3.ZERO, false)
+		K.box(g, Vector3(0.015, 0.05, 0.05), Vector3(x1 - 0.355, y0 + 0.94, lz0 + 0.09), steel, Vector3.ZERO, false)
+		K.box(g, Vector3(0.03, 0.09, 0.05), Vector3(x1 - 0.35, y0 + 1.68, lz0), K.toon(Color("#d8d3c6"), {"line": 0.0}), Vector3.ZERO, false)
+
+	# 东墙上的海报：从窗口望进去，视线尽头总得有点东西，
+	# 否则只剩一面空墙，屋子看着像没建完。
+	K.quad(g, Vector2(0.42, 0.58), Vector3(x1 - 0.12, y0 + 1.60, -2.98),
+		K.toon(Color("#9d9078"), {"shade": 0.88, "line": 0.004}), Vector3(0, -90, 0))
+	for i in 3:
+		K.quad(g, Vector2(0.26, 0.02), Vector3(x1 - 0.115, y0 + 1.72 - i * 0.10, -2.98),
+			K.toon(Color("#8a7f6a"), {"shade": 0.9, "line": 0.0}), Vector3(0, -90, 0), false)
+
+	# 墙上的钟 / 排班表
+	K.cyl(g, 0.11, 0.03, Vector3(cx + 0.09, 2.28, -3.10), K.toon(Color("#d9d4c6"), {"shade": 0.95, "line": 0.0}), Vector3(0, 0, 90), 16)
+	K.quad(g, Vector2(0.34, 0.44), Vector3(cx + 0.075, 1.62, -4.62), K.toon(Color("#e6e0d2"), {"shade": 0.9, "line": 0.003}), Vector3(0, -90, 0))
+	for i in 4:
+		K.quad(g, Vector2(0.22, 0.012), Vector3(cx + 0.08, 1.74 - i * 0.06, -4.62), K.toon(Color("#8a8578"), {"shade": 0.9, "line": 0.0}), Vector3(0, -90, 0), false)
+
+	# 灯：一盏暖光 + 一条灯带，透到卖场这边就是「有人还在上班」的味道
+	var l := OmniLight3D.new()
+	l.light_color = Color("#ffd9a8")
+	l.light_energy = 0.62
+	l.omni_range = 2.8
+	l.omni_attenuation = 1.5
+	# 必须开阴影：否则这盏灯会直接穿过隔墙照到卖场，
+	# 收银台那一片会白得像开了顶灯（实测过，不开就过曝）
+	l.shadow_enabled = true
+	l.shadow_bias = 0.08
+	l.position = Vector3(rx, 2.45, -3.2)
+	g.add_child(l)
+	K.box(g, Vector3(1.0, 0.03, 0.14), Vector3(rx, 2.86, -3.2), K.glow(Color("#fff0d4"), 1.0), Vector3.ZERO, false)
+	K.box(g, Vector3(1.0, 0.03, 0.14), Vector3(rx, 2.86, -4.6), K.glow(Color("#fff0d4"), 0.9), Vector3.ZERO, false)
