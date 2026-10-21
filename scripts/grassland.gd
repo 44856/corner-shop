@@ -20,6 +20,7 @@ const GROUND_SHADER := preload("res://shaders/ground.gdshader")
 const PlayerController := preload("res://scripts/player_controller.gd")
 const Dog := preload("res://scripts/dog.gd")
 const CityWall := preload("res://scripts/city_wall.gd")
+const Guild := preload("res://scripts/guild.gd")
 const NpcGuard := preload("res://scripts/npc_guard.gd")
 const DialogueRunnerScript := preload("res://scripts/dialogue/dialogue_runner.gd")
 ## HUD / 交互中枢直接复用便利店可玩场景那一套（feature/store-walk-in）：
@@ -107,7 +108,9 @@ func _ready() -> void:
 	_setup_ground()
 	_setup_hills()
 	_setup_city_wall()
+	_setup_guild()
 	_setup_gate_npcs()
+	_setup_guild_clerks()
 	_setup_player()
 	_setup_dog()
 	_setup_dialogue()
@@ -313,6 +316,51 @@ func _setup_city_wall() -> void:
 	CityWall.build(self)
 
 
+# ---------------------------------------------------------------- 冒险者公会
+
+## 城镇西南角的冒险者公会。体量、门窗、楼梯全部在 guild.gd 里，
+## 这里只负责「把它放到场景里」—— 布局常量在 guild.gd 上是公开的，
+## 摆 NPC 和注册交互点直接读，不在这里重复写一遍坐标。
+func _setup_guild() -> void:
+	Guild.build(self)
+
+
+# ---------------------------------------------------------------- 公会接待
+
+## 前台后面站两个人。
+##
+## 复用 npc_guard.gd：同一套 Biped 骨架、同一套站姿与微动，只是换了高度和站位。
+## 身高回到 1.8 m 左右而不是城门守卫的 2.3 m —— 前台是文职，
+## 比守卫矮一截反而能一眼读出「谁是站岗的、谁在屋里办公」。
+##
+## 两人一个偏办公（guard_a，站得直）、一个偏松弛（guard_b，重心压一只脚），
+## 相位再错开 5.1 秒，免得两个人同步呼吸。
+func _setup_guild_clerks() -> void:
+	var specs := [
+		{"name": "ClerkIsaac", "path": "res://assets/npc/isaac.glb",
+			"pos": Guild.CLERK_POS[0], "stance": "guard_a", "phase": 0.0,
+			"face": Vector3(0.12, 0.0, -1.0), "h": 1.80},
+		{"name": "ClerkSkadi", "path": "res://assets/npc/skadi.glb",
+			"pos": Guild.CLERK_POS[1], "stance": "guard_b", "phase": 5.1,
+			"face": Vector3(-0.10, 0.0, -1.0), "h": 1.76},
+	]
+	for s in specs:
+		var npc := NpcGuard.new()
+		npc.name = s["name"]
+		npc.model_path = s["path"]
+		npc.position = s["pos"]
+		npc.face_dir = s["face"]
+		npc.stance = s["stance"]
+		npc.phase_offset = s["phase"]
+		npc.target_height = s["h"]
+		# 前台空间小，注视半径收到 3.5 m：站在大厅另一头也扭头看人，
+		# 会像两个监控摄像头
+		npc.notice_radius = 3.5
+		add_child(npc)
+		# 进同一个列表，这样转头逻辑（_update_guard_attention）一并覆盖
+		guards.append({"node": npc, "dialogue": "", "clerk": true})
+
+
 # ---------------------------------------------------------------- 城门 NPC
 
 ## 两个守卫站在城门内侧，面朝城外（-Z），等着玩家从大路上走过来。
@@ -364,6 +412,22 @@ func _setup_player() -> void:
 	player = PlayerController.new()
 	player.name = "Player"
 	player.position = Vector3(0.0, 0.02, 0.0)
+	# 角色贴图必须压暗，否则脸上什么都看不见。
+	#
+	# 这个场景的 ambient 是照「明亮草原」调的：天空 radiance 约 0.7，乘
+	# ambient_light_energy 0.85 之后还要再乘 PI，落到着色器里约 1.9 倍 albedo；
+	# 再加 1.2 的日光，总光照是三倍左右。而 VRoid 的贴图本身就接近 0.8，
+	# 一乘就直接顶到 1.0 以上 —— tonemap 把皮肤、眼白、虹膜全压成同一片白，
+	# 远看就是「一张没有五官的脸」。
+	#
+	# 0.66 是实测出来的：0.8 时眼白仍和皮肤糊在一起；0.5 时整件衣服发灰、
+	# 像蒙了层土。0.66 刚好压回线性 0.4 左右，皮肤有明暗、虹膜能分出来。
+	player.actor_tint = Color(0.66, 0.67, 0.70)
+	# 暗部下限同步降到 0.42：只降 albedo 不降 shade_floor，脸会变成一块平的浅色板，
+	# 五官照样读不出来 —— 靠的是「明暗差」，不是「整体亮度」
+	player.actor_shade_floor = 0.42
+	# 边缘光收一半：白天场景的轮廓本来就是暗的，再加蓝边只会让头显得发光
+	player.actor_rim_strength = 0.04
 	add_child(player)
 
 
@@ -500,11 +564,22 @@ func _setup_interaction() -> void:
 
 	for g in guards:
 		var npc: Node3D = g["node"]
-		var path: String = g["dialogue"]
 		# 目标点抬到胸口高度：距离判定只取水平分量，抬高只为将来画 3D 提示时好看
 		var pos: Vector3 = npc.global_position + Vector3(0.0, 1.1, 0.0)
-		hub.add_target(pos, GUARD_TALK_RADIUS, "和守卫说话",
-			func() -> void: _talk_guard(path))
+		if bool(g.get("clerk", false)):
+			# 接待员的台词还没写，先给一句兜底；换成对话只需要改这个回调
+			hub.add_target(pos, 3.0, "和接待员说话",
+				func() -> void: hud.toast("接待员正忙着整理名册，暂时没空理你。", 3.0))
+		else:
+			var path: String = g["dialogue"]
+			hub.add_target(pos, GUARD_TALK_RADIUS, "和守卫说话",
+				func() -> void: _talk_guard(path))
+
+	# 公会的两块任务板。内容是空的，但交互点先接上 ——
+	# 以后填任务文案只改回调，不动布局
+	for p in Guild.BOARD_POS:
+		hub.add_target(p + Vector3(0.0, 1.4, 0.0), Guild.BOARD_RADIUS, "查看任务板",
+			func() -> void: hud.toast("任务板还是空的。公会还没正式开张。", 3.0))
 
 
 func _talk_guard(path: String) -> void:
@@ -523,8 +598,12 @@ func _process(_delta: float) -> void:
 	if hud == null or player == null or not is_instance_valid(player):
 		return
 	var z: float = player.global_position.z
+	var p: Vector3 = player.global_position
 	var zone := "草原"
-	if z >= MARBLE_Z1:
+	if p.x >= Guild.X0 - 0.4 and p.x <= Guild.X1 + 0.4 \
+			and p.z >= Guild.Z0 and p.z <= Guild.Z1 + 0.4:
+		zone = "冒险者公会 · 大厅"
+	elif z >= MARBLE_Z1:
 		zone = "广场 · 大理石"
 	elif z >= ROAD_LENGTH:
 		zone = "城门内 · 方石广场"
