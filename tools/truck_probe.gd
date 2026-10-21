@@ -30,20 +30,25 @@ func _ready() -> void:
 	player.input_locked = false
 
 	# ---- 1. 没进过店，站在马路中间：不该有车 ----
-	player.global_position = Vector3(0.4, 0.0, 3.3)
+	player.global_position = Vector3(0.4, 0.0, 3.9)
 	await get_tree().create_timer(0.8).timeout
-	_check("没进过店 → 站在马路上也不触发", event.has_fired() == false)
+	_check("没进过店 → 站在马路中间也不触发", event.has_fired() == false)
 
 	# ---- 2. 真的走进店里再出来 ----
 	player.global_position = Vector3(0.7, 0.25, -3.2)
 	await get_tree().create_timer(0.25).timeout
 	_check("进店被记录（区域判定走的是真代码）", event._store_visited == true)
 
+	# ---- 2b. 刚踏下路缘不算：要走到路中间 ----
+	player.global_position = Vector3(0.35, 0.0, 2.5)
+	await get_tree().create_timer(0.8).timeout
+	_check("刚踏下路缘（z=2.5）→ 不触发", event.has_fired() == false)
+
 	player.global_position = Vector3(0.35, 0.17, 1.2)
 	player.face(0.0)
 	await get_tree().physics_frame
-	await _step("走下马路", 0.9, ["move_backward"])
-	_check("下到马路上 → 事件触发", event.has_fired())
+	await _step("走到马路中间", 0.9, ["move_backward"])
+	_check("走到路中间 → 事件触发", event.has_fired())
 
 	# ---- 3. 车从台面外开进来 ----
 	var spawned: bool = await _wait_until(func() -> bool:

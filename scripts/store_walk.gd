@@ -58,6 +58,8 @@ var _shooting := false
 var _shadow: MeshInstance3D
 var _rain: AudioStreamPlayer
 var _hum: AudioStreamPlayer
+var _intro_cam: Camera3D
+var _intro_tween: Tween
 
 
 func _ready() -> void:
@@ -222,26 +224,44 @@ func _play_intro() -> void:
 	player.input_locked = true
 	player.camera.current = false
 
-	var cam := Camera3D.new()
-	cam.name = "IntroCam"
-	cam.fov = 40.0
-	cam.near = 0.1
-	cam.far = 200.0
-	add_child(cam)
-	cam.current = true
+	_intro_cam = Camera3D.new()
+	_intro_cam.name = "IntroCam"
+	_intro_cam.fov = 40.0
+	_intro_cam.near = 0.1
+	_intro_cam.far = 200.0
+	add_child(_intro_cam)
+	_intro_cam.current = true
 
 	var from := _orbit_transform()
 	var to: Transform3D = player.camera.global_transform
-	cam.global_transform = from
+	_intro_cam.global_transform = from
 
 	hud.fade_in(1.3)
 
-	var tw := create_tween()
-	tw.tween_method(
+	var cam := _intro_cam
+	_intro_tween = create_tween()
+	_intro_tween.tween_method(
 		func(v: float) -> void: cam.global_transform = from.interpolate_with(to, v),
 		0.0, 1.0, 3.6
 	).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-	tw.finished.connect(func() -> void: _on_intro_finished(cam))
+	_intro_tween.finished.connect(func() -> void: _on_intro_finished(cam))
+
+
+## 跳过开场推镜，直接落到第三人称（调试 / 实机快速验证用）。
+## 补间必须 kill 掉：留着的话三秒后它会再跑一遍 _on_intro_finished，
+## 把已经锁上的输入重新解开 —— 车祸演到一半人突然能走，很难查。
+func skip_intro() -> void:
+	if _intro_tween != null and _intro_tween.is_valid():
+		_intro_tween.kill()
+	if _intro_cam != null and is_instance_valid(_intro_cam):
+		_intro_cam.queue_free()
+	_intro_cam = null
+	_intro_tween = null
+	hud.fade_in(0.0)
+	player.camera.current = true
+	player.input_locked = false
+	door.enabled = true
+	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
 func _orbit_transform() -> Transform3D:
@@ -254,7 +274,10 @@ func _orbit_transform() -> Transform3D:
 
 
 func _on_intro_finished(cam: Camera3D) -> void:
-	cam.queue_free()
+	if is_instance_valid(cam):
+		cam.queue_free()
+	_intro_cam = null
+	_intro_tween = null
 	player.camera.current = true
 	player.input_locked = false
 	door.enabled = true
@@ -289,11 +312,12 @@ func _process(delta: float) -> void:
 
 
 ## 三个区域：店内 / 人行道 / 车行道。
-## 人行道是 L 形（x −1.9..5.6，z −5.6..1.9），其余落在台面上的都是沥青路面。
+## 人行道是 L 形（含 0.17m 宽的路缘石，外沿 x −2.07 / z 2.07），
+## 其余落在台面上的都是沥青路面。
 func _zone_at(p: Vector3) -> String:
 	if INTERIOR.has_point(p):
 		return "in"
-	if p.z > 2.05 or p.x < -1.95:
+	if p.z > 2.07 or p.x < -2.07:
 		return "road"
 	return "side"
 

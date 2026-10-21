@@ -236,7 +236,8 @@ func _setup_actors() -> void:
 func _setup_rain() -> void:
 	var p := GPUParticles3D.new()
 	p.name = "Rain"
-	p.amount = 2400
+	# 雨量：2400 → 1200，下落频率（= amount / lifetime）减半
+	p.amount = 1200
 	p.lifetime = 2.4
 	p.preprocess = 2.2
 	p.fixed_fps = 60
@@ -250,9 +251,10 @@ func _setup_rain() -> void:
 	p.process_material = pm
 
 	var quad := QuadMesh.new()
-	quad.size = Vector2(0.011, 0.3)
+	# 和 world_env.gd 保持同一档雨量：长宽各减半，可见面积 1/4
+	quad.size = Vector2(0.0055, 0.15)
 	# 把面片整体挂在粒子位置的上方，触面时雨丝不会戳穿地表
-	quad.center_offset = Vector3(0.0, 0.15, 0.0)
+	quad.center_offset = Vector3(0.0, 0.075, 0.0)
 	var m := StandardMaterial3D.new()
 	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA

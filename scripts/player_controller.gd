@@ -102,6 +102,10 @@ var _cam_fov_t := 0.0
 var _cam_shoulder_t := 0.0
 var _cam_blend := 4.0
 
+# 交互时的朝向锁定：按 E 之后先转过去面向对象，短暂优先于「朝移动方向」
+var _face_yaw_target := 0.0
+var _face_hold := 0.0
+
 # 受击表现：击飞（外力接管速度）与镜头抖动
 var _knock_vel := Vector3.ZERO
 var _knocked := false
@@ -265,6 +269,19 @@ func snap_camera(dist: float, height: float, fov: float, shoulder: float = 0.0) 
 func face(angle: float) -> void:
 	if visual != null:
 		visual.rotation.y = angle
+	_face_hold = 0.0
+
+
+## 转向世界坐标里的某个点（交互时面向冷柜 / 货架 / 服务铃 / 猫）。
+## 只锁很短一段时间：转过去之后仍然交还给移动方向，
+## 不会因为「按过一次 E」就把转身手感改掉。
+func look_at_point(target: Vector3, hold: float = 0.55) -> void:
+	var d := target - global_position
+	d.y = 0.0
+	if d.length_squared() < 0.0004:
+		return
+	_face_yaw_target = atan2(d.x, d.z)
+	_face_hold = hold
 
 
 ## 把视角扳回某个朝向（复位 / 演出用）。yaw 用角度，0 = 相机在角色身后朝 −Z。
@@ -319,7 +336,13 @@ func _physics_process(delta: float) -> void:
 
 	_apply_horizontal(delta, wish_dir, speed)
 	_apply_vertical(delta)
-	_apply_facing(delta, wish_dir)
+	if _face_hold > 0.0:
+		# 交互朝向：比常规转身快一点，0.5 秒内转过去，之后就交还给移动方向
+		_face_hold = maxf(0.0, _face_hold - delta)
+		visual.rotation.y = lerp_angle(visual.rotation.y, _face_yaw_target,
+			1.0 - exp(-turn_speed * 1.4 * delta))
+	else:
+		_apply_facing(delta, wish_dir)
 
 	move_and_slide()
 	_update_locomotion(delta)
@@ -474,6 +497,7 @@ func reset_motion() -> void:
 	_walk_amount = 0.0
 	_walk_phase = 0.0
 	_was_airborne = false
+	_face_hold = 0.0
 	if visual != null:
 		visual.position.y = 0.0
 	input_locked = false

@@ -87,6 +87,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if event.is_action_pressed("interact"):
 		get_viewport().set_input_as_handled()
+		# 先转身面向交互对象，再触发反馈。放在中枢里做，
+		# 四个交互点（冷柜 / 货架 / 服务铃 / 猫）就都自动有了，不用各写一遍。
+		if _player.has_method("look_at_point"):
+			_player.look_at_point(_focus["pos"])
 		var cb: Callable = _focus["cb"]
 		if cb.is_valid():
 			cb.call()

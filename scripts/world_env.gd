@@ -118,7 +118,8 @@ static func _lights(root: Node3D) -> Array:
 static func _rain(root: Node3D) -> void:
 	var p := GPUParticles3D.new()
 	p.name = "Rain"
-	p.amount = 2400
+	# 雨量：2400 → 1200，下落频率（= amount / lifetime）减半
+	p.amount = 1200
 	p.lifetime = 2.4
 	p.preprocess = 2.2
 	p.fixed_fps = 60
@@ -132,8 +133,10 @@ static func _rain(root: Node3D) -> void:
 	p.process_material = pm
 
 	var quad := QuadMesh.new()
-	quad.size = Vector2(0.011, 0.3)
-	quad.center_offset = Vector3(0.0, 0.15, 0.0)
+	# 雨丝面片：长宽各减半（11mm × 300mm → 5.5mm × 150mm），可见面积是原来的 1/4。
+	# 想要「体积」严格 1/4（各边 ×0.63）就改成 0.0069 × 0.19。
+	quad.size = Vector2(0.0055, 0.15)
+	quad.center_offset = Vector3(0.0, 0.075, 0.0)
 	var m := StandardMaterial3D.new()
 	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA

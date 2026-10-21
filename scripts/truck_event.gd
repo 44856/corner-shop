@@ -29,8 +29,10 @@ const LANE_MIN := 3.05
 const LANE_MAX := 4.55
 ## 台面半宽（与 street.gd 的 B 一致）
 const B := 5.6
-## 触发线：人行道南缘在 z = 1.9，踩过 2.05 就算「下到马路上了」
-const ROAD_Z := 2.05
+## 触发线：要走到马路中间才出事，不是刚踩下路缘就撞。
+## 路面从 z 2.07（路缘石外沿）到 5.6（台面边缘），中线 3.83；
+## 取 3.7 —— 站在路中间一定已经触发，贴着路缘走不会被点名。
+const TRIGGER_Z := 3.7
 ## 撞上之前多远开始收时间（慢镜头）
 const SLOWMO_GAP := 4.5
 const SLOWMO_SCALE := 0.35
@@ -93,7 +95,7 @@ func _process(delta: float) -> void:
 			_tick_run(delta)
 
 
-## 等人下到马路上
+## 等人走到马路中间（不是刚踏下路缘）
 func _watch() -> void:
 	if not auto_trigger or not _store_visited:
 		return
@@ -103,7 +105,7 @@ func _watch() -> void:
 	if _player.input_locked:
 		return
 	var p: Vector3 = _player.global_position
-	if p.z > ROAD_Z and p.z < B - 0.15 and absf(p.x) < B - 0.15:
+	if p.z > TRIGGER_Z and p.z < B - 0.15 and absf(p.x) < B - 0.15:
 		fire()
 
 
