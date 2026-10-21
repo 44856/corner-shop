@@ -4,7 +4,8 @@ extends Node
 ## 和 tools/walk_probe.gd 一样，这是给人跑的回归测试 —— 以后动 HUD、动交互中枢、
 ## 挪守卫位置或改对话剧本，跑一条命令就知道有没有把交互弄坏：
 ##
-##   godot --headless --path . res://tools/grassland_probe.tscn
+##   ./tools/run.sh --headless grassland_probe
+##   ./tools/check.sh          # 连同便利店那一组一起跑
 ##
 ## 注意：按键必须用 parse_input_event 注入。
 ## Input.action_press() 只改动作状态、不产生事件，_unhandled_input 收不到，

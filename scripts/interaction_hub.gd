@@ -30,6 +30,21 @@ func add_target(pos: Vector3, radius: float, text: String, cb: Callable) -> void
 	_targets.append({"pos": pos, "radius": radius, "text": text, "cb": cb})
 
 
+# ---------------------------------------------------------------- 对外查询
+#
+# 测试与外部模块**只能**通过下面两个方法读状态。
+# 不要再碰 _focus / _targets —— 它们是内部结构，改个字段名不该打断调用方。
+
+## 当前是否有聚焦目标。
+func has_focus() -> bool:
+	return not _focus.is_empty()
+
+
+## 当前聚焦目标的提示文案；没有聚焦时返回空串。
+func focused_text() -> String:
+	return "" if _focus.is_empty() else String(_focus["text"])
+
+
 ## E 键在代码里注册；如果工程里已经有 interact（草原的狗用的是 F），
 ## 就把它补上 E，让两边的肌肉记忆一致。
 func _ensure_action() -> void:
