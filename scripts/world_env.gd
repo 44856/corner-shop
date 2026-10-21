@@ -153,8 +153,8 @@ static func _ripples(root: Node3D) -> void:
 	var surfaces := [
 		{"pos": Vector3(0.0, 0.007, 0.0), "size": Vector2(11.2, 11.2), "strength": 0.36, "dry": false},
 		{"pos": Vector3(1.85, 0.168, 0.5), "size": Vector2(7.5, 2.8), "strength": 0.26, "dry": true},
-		{"pos": Vector3(4.28, 0.196, -3.2), "size": Vector2(2.3, 4.5), "strength": 0.24, "dry": false},
-		{"pos": Vector3(0.7, 3.712, -3.2), "size": Vector2(4.8, 4.6), "strength": 0.3, "dry": false},
+		{"pos": Vector3(4.83, 0.196, -3.2), "size": Vector2(1.06, 4.5), "strength": 0.24, "dry": false},
+		{"pos": Vector3(1.3, 3.712, -3.2), "size": Vector2(6.0, 4.6), "strength": 0.3, "dry": false},
 	]
 
 	var grp := Node3D.new()
@@ -174,6 +174,6 @@ static func _ripples(root: Node3D) -> void:
 		mat.set_shader_parameter("strength", s["strength"])
 		if s["dry"]:
 			mat.set_shader_parameter("dry_min", Vector2(-1.76, -0.96))
-			mat.set_shader_parameter("dry_max", Vector2(3.16, 0.2))
+			mat.set_shader_parameter("dry_max", Vector2(4.36, 0.2))
 		mi.material_override = mat
 		grp.add_child(mi)

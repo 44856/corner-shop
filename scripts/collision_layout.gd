@@ -117,7 +117,15 @@ static func _store(g: Node3D) -> void:
 	_box(g, Vector3((Store.X0 - 0.33) * 0.5, wy, Store.Z1 - 0.11), Vector3(-0.33 - Store.X0, wh, 0.22))
 	_box(g, Vector3((1.04 + Store.X1) * 0.5, wy, Store.Z1 - 0.11), Vector3(Store.X1 - 1.04, wh, 0.22))
 	# 天花（挡相机，别让弹簧臂穿出屋顶）
-	_box(g, Vector3(0.7, 2.93, -3.2), Vector3(4.36, 0.1, 4.16))
+	_box(g, Vector3((Store.X0 + Store.X1) * 0.5, 2.93, (Store.Z0 + Store.Z1) * 0.5),
+		Vector3(Store.X1 - Store.X0 - 0.44, 0.1, Store.Z1 - Store.Z0 - 0.44))
+
+	# 员工休息室隔墙：整面实心。
+	# 门虽然画成「关着的门」，但碰撞不做门洞 —— 这个房间的设定就是进不去，
+	# 留个洞迟早会被人挤进去（胶囊半径 0.32，0.9m 的门洞一挤就过）。
+	var br: Dictionary = L["break_room"]
+	_box(g, Vector3(br["x0"], wy, (br["z0"] + br["z1"]) * 0.5),
+		Vector3(0.12, wh, br["z1"] - br["z0"]))
 
 	# 货架
 	for r in L["racks"]:
@@ -162,8 +170,8 @@ static func _street(g: Node3D) -> void:
 	_cylinder(g, Vector3(-0.55, 0.4, -0.6), 0.08, 0.48)
 	# 自行车（侧着停，给个薄盒子就够）
 	_box(g, Vector3(-1.02, 0.55, 0.5), Vector3(0.34, 1.0, 1.45), 62.0)
-	# 后巷贩卖机
-	_box(g, Vector3(3.6, 1.08, -3.5), Vector3(0.78, 1.9, 1.05), 90.0)
+	# 贩卖机：后巷收窄到 1.06m 之后只剩巷子尽头放得下（1.0 × 0.72，面朝巷口）
+	_box(g, Vector3(4.83, 0.16 + 0.95, -4.95), Vector3(1.02, 1.9, 0.76))
 	# 后巷矮墙与铁栏
 	_box(g, Vector3(5.36, 1.1, -3.02), Vector3(0.3, 2.2, 5.0))
 

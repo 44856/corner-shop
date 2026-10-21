@@ -39,8 +39,8 @@ const CAM_IN := {"dist": 1.6, "height": 1.55, "fov": 70.0, "shoulder": 0.28}
 const EXPOSE_OUT := 1.12
 const EXPOSE_IN := 0.92
 
-## 店内包围盒（判定「在店里」用）
-const INTERIOR := AABB(Vector3(-1.46, 0.0, -5.26), Vector3(4.32, 3.0, 4.12))
+## 店内包围盒（判定「在店里」用）。东墙从 3.1 推到 4.30，休息室也在里面。
+const INTERIOR := AABB(Vector3(-1.46, 0.0, -5.26), Vector3(5.52, 3.0, 4.12))
 
 ## 开场镜头的起点：原微缩场景的机位
 const ORBIT := {"yaw": 26.0, "pitch": 14.5, "dist": 17.0, "target": Vector3(0.0, 1.2, -0.95)}
@@ -182,10 +182,13 @@ func _setup_interactions() -> void:
 
 	# 冷柜：站在它东侧 0.9m 处就能按
 	hub.add_target(Vector3(1.35, 1.0, -4.55), 1.75, "拉开冷柜", _on_fridge)
-	# 货架：两块货架中间那条过道
-	hub.add_target(Vector3(0.0, 1.0, -3.85), 1.55, "翻一翻货架", _on_rack)
-	# 收银台：沿东墙，正面朝 −X
-	hub.add_target(Vector3(2.58, 1.0, -3.0), 1.35, "按服务铃", _on_bell)
+	# 货架：两块货架中间那条过道（货架东端收到 0.60，中心跟着西移）
+	hub.add_target(Vector3(-0.20, 1.0, -3.85), 1.55, "翻一翻货架", _on_rack)
+	# 收银台：加长到 2.2m 之后铃铛在 (1.68, −2.92)。
+	# inside_only：服务铃只在店里按得响 —— 隔着东墙 / 空调外机从后巷按，
+	# 距离判定能过（1.4m），但那不是「按铃」，是「穿墙」。视线检查在中枢里做。
+	hub.add_target(Vector3(1.68, 1.0, -2.92), 1.40, "按服务铃", _on_bell,
+		func() -> bool: return _inside)
 	# 门口的猫
 	hub.add_target(Vector3(0.98, 0.4, -0.52), 1.3, "摸摸猫", _on_cat)
 
@@ -397,8 +400,18 @@ func _play_at(pos: Vector3, stream: AudioStream, db: float = -6.0) -> void:
 
 # ---------------------------------------------------------------- 截图
 
+## 调试用：`--only=walk_h_breakroom` 只拍这一张。
+## 调机位的时候全套跑一遍要两分钟，只拍一张十几秒，改十次也不心疼。
+func _only_shot() -> String:
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--only="):
+			return a.substr(7)
+	return ""
+
+
 func _take_shots() -> void:
 	_shooting = true
+	var only := _only_shot()
 	# 不锁输入：交互中枢在锁定状态下不出提示，而提示本身是要拍进图里的
 	player.input_locked = false
 	# 截图时手动控制门的开合，别让感应器把「关着」的那张也打开
@@ -432,23 +445,56 @@ func _take_shots() -> void:
 		{"name": "walk_c_door", "pos": Vector3(0.35, 0.17, -0.62), "face": PI, "yaw": 0.0,
 			"pitch": -0.05, "dist": 2.6, "door": true, "fov": 58.0, "shoulder": 0.10, "exp": 1.06,
 			"prompt": false},
-		{"name": "walk_d_inside", "pos": Vector3(1.4, 0.25, -3.6), "face": PI, "yaw": 6.0,
-			"pitch": -0.04, "dist": 1.95, "door": true, "fov": 66.0, "shoulder": 0.34, "exp": EXPOSE_IN},
-		# 两块货架之间那条 0.83m 的过道：从东侧看进去，证明「真的走得进去」
-		{"name": "walk_e_aisle", "pos": Vector3(0.3, 0.25, -3.18), "face": -PI * 0.5, "yaw": 90.0,
+		# 进门后往北看：左边货架、右边加长到 2.2m 的柜台、柜台后面是休息室。
+		# 机位必须留在店内 —— 后退 2.2m 会退到玻璃门外，拍出来是隔着橱窗往里看。
+		{"name": "walk_d_inside", "pos": Vector3(0.72, 0.25, -3.05), "face": PI, "yaw": 6.0,
+			"pitch": -0.04, "dist": 1.95, "door": true, "fov": 66.0, "shoulder": 0.52, "exp": EXPOSE_IN},
+		# 两块货架之间那条 0.80m 的过道：从东侧看进去，证明「真的走得进去」
+		{"name": "walk_e_aisle", "pos": Vector3(0.30, 0.25, -3.18), "face": -PI * 0.5, "yaw": 90.0,
 			"pitch": 0.0, "dist": 1.9, "door": true, "fov": 68.0, "shoulder": 0.26, "exp": EXPOSE_IN},
+		# 休息室：隔窗看进去（灯亮着、桌椅在，但进不去）。
+		# 这一张用自由机位：0.80m 的过道塞不下第三人称摇臂，
+		# 人往窗前一站就把窗挡死，不如直接给一台固定机位拍建筑本身。
+		{"name": "walk_h_breakroom", "free": Vector3(0.95, 1.52, -2.42),
+			"look": Vector3(2.80, 1.26, -2.98), "door": true, "fov": 60.0, "exp": EXPOSE_IN,
+			"prompt": false},
 	]
 
 	for s in specs:
-		player.global_position = s["pos"]
-		player.face(s["face"])
-		player.snap_camera(s["dist"], 1.45, s["fov"], s["shoulder"])
-		player.cam_rig.rotation = Vector3(s["pitch"], s["yaw"], 0.0)
+		if only != "" and s["name"] != only:
+			continue
 		door.set_open(s["door"], true)
 		env.tonemap_exposure = s["exp"]
 		hub.enabled = s.get("prompt", true)
 		if not hub.enabled:
 			hud.hide_prompt()
+
+		if s.has("free"):
+			var fc := Camera3D.new()
+			fc.fov = s["fov"]
+			fc.near = 0.05
+			fc.far = 200.0
+			add_child(fc)
+			fc.global_position = s["free"]
+			fc.look_at(s["look"], Vector3.UP)
+			fc.current = true
+			player.camera.current = false
+			player.visible = false
+			_update_shadow()
+			for i in 12:
+				await get_tree().process_frame
+			await RenderingServer.frame_post_draw
+			get_viewport().get_texture().get_image().save_png("res://shots/%s.png" % s["name"])
+			print("saved ", s["name"])
+			fc.queue_free()
+			player.visible = true
+			player.camera.current = true
+			continue
+
+		player.global_position = s["pos"]
+		player.face(s["face"])
+		player.snap_camera(s["dist"], 1.45, s["fov"], s["shoulder"])
+		player.cam_rig.rotation = Vector3(s["pitch"], s["yaw"], 0.0)
 		_update_shadow()
 		for i in 12:
 			await get_tree().process_frame
@@ -457,6 +503,9 @@ func _take_shots() -> void:
 		print("saved ", s["name"])
 
 	# ---- 货车：两张。一张验证台面裁剪，一张是压到人面前的构图 ----
+	if only != "":
+		get_tree().quit()
+		return
 	env.tonemap_exposure = EXPOSE_OUT
 	hub.enabled = false
 	hud.hide_prompt()
