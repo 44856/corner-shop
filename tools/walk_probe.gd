@@ -4,7 +4,8 @@ extends Node
 ## 手动试玩一次当然也能看出来，但这是回归测试：
 ## 以后改门的坐标、改货架宽度、改门槛高度，跑一条命令就能知道有没有把路堵死。
 ##
-##   ./Godot_v4.7.2-stable_linux.x86_64 --headless --path . res://tools/walk_probe.tscn
+##   ./tools/run.sh --headless walk_probe
+##   ./tools/check.sh          # 连同草原那一组一起跑
 
 var world: Node3D
 var player: CharacterBody3D
@@ -35,9 +36,8 @@ func _ready() -> void:
 	_check("能走到冷柜前（z < −4.4）", player.global_position.z < -4.4)
 
 	var hub: Node = world.hub
-	_check("冷柜交互提示已弹出", hub._focus.is_empty() == false)
-	_check("提示文案是「拉开冷柜」",
-		not hub._focus.is_empty() and String(hub._focus["text"]) == "拉开冷柜")
+	_check("冷柜交互提示已弹出", hub.has_focus())
+	_check("提示文案是「拉开冷柜」", hub.focused_text() == "拉开冷柜")
 
 	await _step("退回店堂", 1.2, ["move_backward"])
 	await _step("挪回门洞正中", 0.30, ["move_left"])

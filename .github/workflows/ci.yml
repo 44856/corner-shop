@@ -1,0 +1,75 @@
+name: ci
+
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+    branches: [develop, main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: probe
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      # 必须 lfs: true。默认情况下 checkout 只拿指针文本（130 字节），
+      # Godot 导入 assets 会失败，probe 全部报「资源加载不了」。
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      # 提前失败：如果哪天 lfs: true 被删掉，这里会直接说明原因，
+      # 而不是让 30 条 probe 断言各自报「资源加载不了」。
+      - name: 确认 LFS 对象已展开
+        run: |
+          size=$(stat -c%s assets/characters/gaia.glb)
+          echo "gaia.glb = ${size} bytes"
+          if [ "$size" -lt 1000000 ]; then
+            echo "assets 拿到的是 LFS 指针文本（约 130 字节），不是真实文件。"
+            echo "检查 actions/checkout 的 lfs: true。"
+            exit 1
+          fi
+
+      - name: 缓存引擎
+        id: godot-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/godot
+          key: godot-4.7.2-linux
+
+      - name: 安装 Godot 4.7.2
+        if: steps.godot-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p "$HOME/godot"
+          curl -sSL -o /tmp/godot.zip \
+            "https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip"
+          unzip -oq /tmp/godot.zip -d "$HOME/godot"
+          mv "$HOME/godot/Godot_v4.7.2-stable_linux.x86_64" "$HOME/godot/godot"
+          chmod +x "$HOME/godot/godot"
+
+      - name: 系统依赖
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libfontconfig1 libfreetype6
+
+      - name: 缓存导入结果
+        uses: actions/cache@v4
+        with:
+          path: .godot
+          key: godot-import-4.7.2-${{ hashFiles('assets/**', 'shaders/**', 'audio/**', 'project.godot') }}
+          restore-keys: godot-import-4.7.2-
+
+      - name: 版本自检
+        run: ~/godot/godot --version
+
+      # 静态规则先跑：几秒出结果，坏了就不必等 20 秒的 probe。
+      - name: 规则检查
+        run: ./tools/lint_rules.sh
+
+      - name: 回归测试
+        run: ./tools/check.sh

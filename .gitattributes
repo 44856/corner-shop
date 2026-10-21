@@ -1,5 +1,16 @@
 # Normalize EOL for all files that Git considers text files.
 * text=auto eol=lf
+
+# 大二进制资产走 git-lfs。
+#
+# 只覆盖 assets/ 与 audio/，不动 preview.png 与 shots/：
+#   - preview.png 是 README 首图，1.1MB，留在普通对象里最省事；
+#   - shots/ 已经整个不进仓库（见 .gitignore）。
+# 前提：本机装了 git-lfs。没装的话 `git add` 会直接报错（安全失败，
+# 不会静默把 15MB 的 glb 塞进历史）。安装与历史迁移见 tools/setup_lfs.sh。
+/assets/**/*.glb  filter=lfs diff=lfs merge=lfs -text
+/assets/**/*.png  filter=lfs diff=lfs merge=lfs -text
+/audio/**/*.wav   filter=lfs diff=lfs merge=lfs -text
 assets/**/*.glb filter=lfs diff=lfs merge=lfs -text
 assets/**/*.png filter=lfs diff=lfs merge=lfs -text
 audio/**/*.wav filter=lfs diff=lfs merge=lfs -text
