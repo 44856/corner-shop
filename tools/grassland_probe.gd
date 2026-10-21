@@ -98,19 +98,21 @@ func _check_guard_stance() -> void:
 	for g in _scene.guards:
 		var npc: Node3D = g["node"]
 		var nm := String(npc.name)
-		var skel: Skeleton3D = npc.get("_skel")
-		_check("%s 有骨架" % nm, skel != null)
-		if skel == null:
+		# 只调公开的 pose_probe()：骨骼命名与骨架字段都留在 npc_guard.gd 内部，
+		# 探针这边不该知道（AGENTS.md R2 —— 读私有字段会让重构静默打断测试）
+		var pose: Dictionary = npc.call("pose_probe")
+		_check("%s 有骨架" % nm, not pose.is_empty())
+		if pose.is_empty():
 			continue
-		rows.append([nm, skel])
+		rows.append([nm, npc])
 
-		var pelvis := _bone_pos(skel, "Bip001-Pelvis")
-		var hand := _bone_pos(skel, "Bip001-R-Hand")
+		var pelvis: Vector3 = pose["pelvis"]
+		var hand: Vector3 = pose["hand_r"]
 		var sep := Vector2(hand.x - pelvis.x, hand.z - pelvis.z).length()
 		_check("%s 手臂收到身侧（离骨盆 %.2fm）" % [nm, sep], sep < 0.45,
 			"A-pose 是 0.59m，说明 STANCES 没生效")
 
-		var ankle := _bone_pos(skel, "Bip001-L-Foot")
+		var ankle: Vector3 = pose["ankle_l"]
 		_check("%s 脚踩在地面（踝高 %.2fm）" % [nm, ankle.y],
 			ankle.y > 0.05 and ankle.y < 0.35, "脚离地或埋进地里，检查膝盖补偿")
 
@@ -121,29 +123,22 @@ func _check_guard_stance() -> void:
 	var head0: Array = []
 	var foot0: Array = []
 	for r in rows:
-		var skel: Skeleton3D = r[1]
-		head0.append(skel.get_bone_global_pose(skel.find_bone("Bip001-Head")).basis)
-		foot0.append(_bone_pos(skel, "Bip001-L-Foot"))
+		var pose: Dictionary = (r[1] as Node3D).call("pose_probe")
+		head0.append(pose["head_dir"])
+		foot0.append(pose["ankle_l"])
 	await get_tree().create_timer(3.0).timeout
 
 	for i in rows.size():
 		var nm: String = rows[i][0]
-		var skel: Skeleton3D = rows[i][1]
-		var h: Basis = skel.get_bone_global_pose(skel.find_bone("Bip001-Head")).basis
-		var moved := (h.z - (head0[i] as Basis).z).length()
+		var pose: Dictionary = (rows[i][1] as Node3D).call("pose_probe")
+		var h: Vector3 = pose["head_dir"]
+		var moved := (h - (head0[i] as Vector3)).length()
 		_check("%s 上半身在动（头偏移 %.3f）" % [nm, moved], moved > 0.004,
 			"微动没跑起来，守卫退化成静态模型")
 
-		var slide := (_bone_pos(skel, "Bip001-L-Foot") - (foot0[i] as Vector3)).length()
+		var slide := ((pose["ankle_l"] as Vector3) - (foot0[i] as Vector3)).length()
 		_check("%s 脚没跟着滑（%.4fm）" % [nm, slide], slide < 0.001,
 			"微动碰到了骨盆或腿，脚在地上滑")
-
-
-func _bone_pos(skel: Skeleton3D, bone: String) -> Vector3:
-	var i := skel.find_bone(bone)
-	if i < 0:
-		return Vector3.ZERO
-	return skel.global_transform * skel.get_bone_global_pose(i).origin
 
 
 func _zone_at(z: float, expect: String) -> void:
