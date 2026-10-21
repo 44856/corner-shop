@@ -37,7 +37,7 @@ func _ready() -> void:
 	# ---- 2. 真的走进店里再出来 ----
 	player.global_position = Vector3(0.7, 0.25, -3.2)
 	await get_tree().create_timer(0.25).timeout
-	_check("进店被记录（区域判定走的是真代码）", event._store_visited == true)
+	_check("进店被记录（区域判定走的是真代码）", event.store_visited())
 
 	# ---- 2b. 刚踏下路缘不算：要走到路中间 ----
 	player.global_position = Vector3(0.35, 0.0, 2.5)
@@ -52,22 +52,22 @@ func _ready() -> void:
 
 	# ---- 3. 车从台面外开进来 ----
 	var spawned: bool = await _wait_until(func() -> bool:
-		return event._truck != null and is_instance_valid(event._truck), 3.0)
+		return event.spawned_truck() != null and is_instance_valid(event.spawned_truck()), 3.0)
 	_check("货车已生成", spawned)
 	if spawned:
-		var x: float = event._truck.global_position.x
+		var x: float = event.spawned_truck().global_position.x
 		_check("生成点在台面之外（|x| > 5.6）", absf(x) > 5.6)
 		_check("车道在马路范围内（z 3.0~4.6）",
-			event._truck.global_position.z > 3.0 and event._truck.global_position.z < 4.6)
-		_check("材质带台面裁剪参数", _clip_ok(event._truck))
-		_check("车灯有可见光束（锥体 ×2）", _beam_count(event._truck) >= 2)
+			event.spawned_truck().global_position.z > 3.0 and event.spawned_truck().global_position.z < 4.6)
+		_check("材质带台面裁剪参数", _clip_ok(event.spawned_truck()))
+		_check("车灯有可见光束（锥体 ×2）", _beam_count(event.spawned_truck()) >= 2)
 		# Label3D 不吃裁剪着色器：车还在台面外时，车身上的字必须藏起来，
 		# 否则会孤零零飘在底座外面（曾经真的飘过）
 		await get_tree().process_frame
-		_check("台面外的车不显示车身文字", _labels_hidden(event._truck))
+		_check("台面外的车不显示车身文字", _labels_hidden(event.spawned_truck()))
 
 	# ---- 4. 撞上 ----
-	var hit: bool = await _wait_until(func() -> bool: return event._hit_done, 4.0)
+	var hit: bool = await _wait_until(func() -> bool: return event.hit_landed(), 4.0)
 	_check("车头追上人 → 判定命中", hit)
 	if hit:
 		# 击飞是物理推的：采一小段时间里的最高点，别赌某一帧

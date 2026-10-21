@@ -36,6 +36,21 @@ func add_target(pos: Vector3, radius: float, text: String, cb: Callable,
 	_targets.append({"pos": pos, "radius": radius, "text": text, "cb": cb, "gate": gate})
 
 
+# ---------------------------------------------------------------- 对外查询
+#
+# 测试与外部模块**只能**通过下面两个方法读状态。
+# 不要再碰 _focus / _targets —— 它们是内部结构，改个字段名不该打断调用方。
+
+## 当前是否有聚焦目标。
+func has_focus() -> bool:
+	return not _focus.is_empty()
+
+
+## 当前聚焦目标的提示文案；没有聚焦时返回空串。
+func focused_text() -> String:
+	return "" if _focus.is_empty() else String(_focus["text"])
+
+
 ## E 键在代码里注册；如果工程里已经有 interact（草原的狗用的是 F），
 ## 就把它补上 E，让两边的肌肉记忆一致。
 func _ensure_action() -> void:
@@ -99,6 +114,11 @@ func _clear_focus() -> void:
 ## 从胸口打一条射线到提示点，中间隔着东西就返回 false。
 ## 射线打到的位置离目标点还有 SIGHT_TOLERANCE 以上，才算被挡住 ——
 ## 目标点本身常常就落在物体里（货架 / 台面），射线先打到它自己是正常的。
+## 公开版：probe 只准读公开接口，别让测试盯着内部实现。
+func has_sight(from: Vector3, to: Vector3) -> bool:
+	return _has_sight(from, to)
+
+
 func _has_sight(from: Vector3, to: Vector3) -> bool:
 	var eye := from + Vector3(0.0, 1.1, 0.0)
 	var q := PhysicsRayQueryParameters3D.create(eye, to)

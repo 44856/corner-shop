@@ -15,24 +15,41 @@
 ## 运行
 
 ```bash
-# 用 Godot 4.7.2 打开本目录（选中 project.godot），按 F5
-# 或直接命令行启动：
-./Godot_v4.7.2-stable_linux.x86_64 --path .
+./tools/run.sh              # 默认入口：store_walk（微缩全景推镜 → 第三人称）
+./tools/run.sh list         # 看有哪些场景能跑
 ```
 
-F5 默认进入 `scenes/store_walk.tscn`：先是一段从微缩全景推近到人物背后的镜头，
-落到人行道后就能操作。单独看某个场景用 `--path . res://scenes/xxx.tscn`。
-
-原来的开场流程（雨夜三幕动画 → 异世界草原）仍在，只是不再是默认入口：
+`tools/run.sh` 会自动找引擎（项目根 → `~/godot*` → PATH），也可以用 `GODOT_BIN` 指定：
 
 ```bash
-./Godot_v4.7.2-stable_linux.x86_64 --path . res://scenes/opening_flow.tscn
+GODOT_BIN=/path/to/godot ./tools/run.sh
+```
+
+**单独看某个场景时不要去改 `project.godot` 的 `main_scene`。** 改来改去 diff 里全是噪声，
+还会和别人的分支打架 —— 命令行指定场景就够了：
+
+```bash
+./tools/run.sh grassland                    # 简写，自动补 res://scenes/ 与 .tscn
+./tools/run.sh opening_flow                 # 原来的开场流程（雨夜三幕 → 草原）
+./tools/run.sh --editor store_walk          # 在编辑器里打开该场景
+./tools/run.sh --headless walk_probe        # 无窗口跑回归
+./tools/run.sh store_walk -- --shot         # -- 之后的参数原样传给场景
+./tools/run.sh -n store_wal                 # 只打印将要执行的命令（dry run）
+```
+
+名字支持唯一前缀：`store_wal` 会命中 `store_walk`；匹配到多个时会拒绝执行并列出候选。
+
+不用脚本也行，原始命令仍然可用：
+
+```bash
+./Godot_v4.7.2-stable_linux.x86_64 --path .
+./Godot_v4.7.2-stable_linux.x86_64 --path . res://scenes/grassland.tscn
 ```
 
 渲染器为 **Forward+**（湿地面 SSR 反射、SSAO、体积雾、景深需要 Forward+）。
 若机器只有 OpenGL，场景仍可正常显示，只是会失去屏幕空间反射与体积雾。
 
-> 换了机器或拉了大文件之后，先跑一次 `--headless --editor --quit` 重新导入资源。
+> 换了机器或拉了大文件之后，第一次启动会自动导入（约 1 分钟）。
 > `.godot/` 不进仓库，缺了这一步音频和 `gaia.glb` 会加载失败，场景看起来就像「少了东西」。
 
 ## 操作（可玩版）
@@ -65,7 +82,7 @@ F5 默认进入 `scenes/store_walk.tscn`：先是一段从微缩全景推近到�
    —— `main.gd` 当时的逐字副本，随时随地能跑一遍旧版做对照，不需要切分支。
 
 ```bash
-./Godot_v4.7.2-stable_linux.x86_64 --path . res://scenes/diorama_orbit.tscn
+./tools/run.sh diorama_orbit
 ```
 
 注意副本引用的是「当前」的 `street.gd / store.gd / props.gd`，冻结的是编排
@@ -98,8 +115,14 @@ scripts/kit.gd          建模工具库：体块、圆柱、管线、拉杆、�
 scripts/backup/diorama_orbit.gd 改造前编排的冻结副本
 scripts/dialogue/       对话解析与播放（草原用）
 shaders/                三渲二 / 描边 / 砖缝 / 玻璃 / 自发光 / 湿光 / 车灯光束 / 雨 / 涟漪
-tools/walk_probe.tscn   自动行走回归测试（见「自测」）
-tools/truck_probe.tscn  车祸事件回归测试（见「自测」）
+
+tools/run.sh            单场景运行（不改 project.godot）
+tools/check.sh          全量回归：自动发现并跑 tools/*_probe.tscn
+tools/_godot.sh         引擎探测（被上面两个脚本 source）
+tools/setup_lfs.sh      git-lfs 环境检查与历史迁移
+tools/walk_probe.tscn   便利店行走回归（14 条断言，见「自测」）
+tools/truck_probe.tscn  车祸事件回归（17 条断言，见「自测」）
+tools/grassland_probe.tscn 草原交互回归（30 条断言）
 ```
 
 ## 交互实现要点
@@ -149,23 +172,28 @@ tools/truck_probe.tscn  车祸事件回归测试（见「自测」）
 ## 自测
 
 ```bash
-# 无渲染，只跑物理：走进店门 → 东侧过道 → 冷柜 → 退出门 → 爬回路缘
-./Godot_v4.7.2-stable_linux.x86_64 --headless --path . res://tools/walk_probe.tscn
+./tools/check.sh
 ```
 
-输出 14 条断言（门是否打开、是否跨过门槛、是否踩上 0.25m 店内地板、
-能否走到冷柜前、提示文案是否正确、服务铃在店内亮 / 隔着东墙不亮、
-挤不进休息室、离开后门是否关上、能否爬上 16cm 路缘）。
-退出码非 0 表示有断言失败，改完几何以后跑一遍就知道有没有把路堵死。
+跑 `tools/` 下全部 `*_probe.tscn`，一个场景一行结果，最后给总判定。现在有三组：
+
+| probe | 断言 | 测什么 |
+| --- | --- | --- |
+| `walk_probe` | 14 | 走进店门 → 东侧过道 → 冷柜 → 退出门 → 爬回路缘；门是否打开、是否跨过门槛、是否踩上 0.25m 地板、提示文案、服务铃店内亮 / 隔墙不亮、挤不进休息室、离开后关门 |
+| `truck_probe` | 17 | 车祸事件：触发条件、冲刺速度、命中判定、慢镜头、收黑复位、不重复触发、车出台面后回收 |
+| `grassland_probe` | 30 | 狗与两个守卫的交互、提示出/收、区域标签、对话全流程、守卫站姿与脚底贴地 |
+
+判定失败的条件有三条：probe 退出码非 0、输出里有 `SCRIPT ERROR` / `Parse Error`、
+probe 自己打印的 `failed` 计数非 0。**只靠退出码会漏**，因为 Godot 打包脚本错误时经常照样返回 0。
+
+只跑一组：
 
 ```bash
-# 无渲染，只跑事件状态机：没进店不触发 → 进店 → 路缘不触发 → 路中间 → 命中 → 复位 → 车回收
-./Godot_v4.7.2-stable_linux.x86_64 --headless --path . res://tools/truck_probe.tscn
+./tools/run.sh --headless walk_probe
+./tools/run.sh --headless truck_probe   # 无渲染，只走车祸事件状态机
 ```
 
-17 条断言：触发前置条件、路缘 / 路中间的触发线、生成点在台面外、材质带裁剪参数、
-车灯有可见光束、车身文字在台面外不显示、命中与击飞、复位位置与输入锁、
-车出台面后回收、事件不重复触发。
+新增 probe 只要命名成 `tools/xxx_probe.tscn` 就会被自动纳入，不用改脚本，也不用改 CI。
 
 ## 美术要点
 
@@ -200,12 +228,73 @@ tools/truck_probe.tscn  车祸事件回归测试（见「自测」）
 ## 调试截图
 
 ```bash
-# 可玩版：9 张（全景 + 街道 + 门口 + 店内 + 货架过道 + 休息室 + 货车裁剪 + 货车压脸 + 车头特写）
-./Godot_v4.7.2-stable_linux.x86_64 --path . res://scenes/store_walk.tscn -- --shot
+# 可玩版：9 张（全景 + 街道 + 门口 + 店内 + 货架过道 + 休息室 + 货车裁剪 + 货车压脸 + 车头特写）→ shots/walk_*.png
+./tools/run.sh store_walk -- --shot
 
 # 只拍一张（调机位时用，省得全套跑一遍）：
-./Godot_v4.7.2-stable_linux.x86_64 --path . res://scenes/store_walk.tscn -- --shot --only=walk_h_breakroom
+./tools/run.sh store_walk -- --shot --only=walk_h_breakroom
 
 # 微缩展示版：7 个轨道机位 → shots/a_front.png 等
-./Godot_v4.7.2-stable_linux.x86_64 --path . res://scenes/main.tscn -- --shot
+./tools/run.sh main -- --shot
 ```
+
+`shots/` 是产物，**不进仓库**（见 `.gitignore`）。目录本身用 `.gitkeep` 保留，
+否则 `--shot` 会因为目录不存在而静默失败。要归档某张图，单独拷出来当文档素材。
+
+## 协作
+
+分层、契约、CI、分支模型、迁移路线都在 [`docs/架构与协作规范.md`](docs/架构与协作规范.md)。
+日常只有四条：
+
+- 改完跑 `./tools/check.sh`（回归）与 `./tools/lint_rules.sh`（规则），全绿再开 PR；
+- 改了 `kit / store / street / props` 的公开签名，PR 里贴出全部调用方的 grep 结果；
+- 不要为了看单个场景去改 `project.godot` 的 `main_scene`，用 `./tools/run.sh <场景>`；
+- 新代码先 grep 有没有先例——这个工程很多东西已经有了（20 个建模原语、程序化音效、
+  完整的 HUD 与交互中枢）。
+
+### 用 AI 写代码
+
+仓库根有 [`AGENTS.md`](AGENTS.md)：铁律 R1–R9、反直觉清单（角色朝向、骨骼枢轴、材质缓存、
+输入事件）、命令速查。`CLAUDE.md` 与 `.github/copilot-instructions.md` 都只指向它——
+**规则只维护一份**，多份必然漂移。
+
+其中 R1–R6 不是纸面约定，`./tools/lint_rules.sh` 会真的检查：
+
+| # | 检查什么 |
+| --- | --- |
+| R1 | `.tscn` 有没有被摆进第二个节点 |
+| R2 | probe 有没有读 `_` 开头的私有字段 |
+| R3 | 输入注册有没有新增第四份 |
+| R4 | `res://` 路径有没有断链 |
+| R5 | `project.godot` 的默认入口是否存在 |
+| R6 | 截图 / 引擎二进制有没有混进索引 |
+
+CI 里这两步都会跑，规则检查先跑（几秒），坏了不必等 20 秒的 probe。
+
+### 大文件与 git-lfs
+
+`assets/` 下的 `.glb` / `.png` 与 `audio/` 下的 `.wav` 走 git-lfs（规则见 `.gitattributes`）。
+clone 之前先装：
+
+```bash
+# Arch / EndeavourOS  sudo pacman -S git-lfs
+# Debian / Ubuntu    sudo apt install git-lfs
+# macOS              brew install git-lfs
+git lfs install
+```
+
+没装 lfs 时 `git add assets/...` 会直接报错——这是故意的：安全失败，好过把 15MB 的模型
+塞进普通对象、再等半年才发现仓库有 500MB。
+
+**历史已于 2026-10-21 迁移完成**（28 个 commit 重写，47 个指针文件）。所以现在
+clone 之前必须装 lfs，否则 `assets/` 下拿到的是 130 字节的指针文本，
+Godot 会报资源加载失败——看起来像「少了东西」，其实是没装 lfs。
+
+检查环境（对新的 clone 或新机器有用）：
+
+```bash
+./tools/setup_lfs.sh --check     # 只检查，不动任何东西
+```
+
+`setup_lfs.sh` 的迁移功能已经用过一次。它拒绝在 worktree 里执行——`migrate --everything`
+重写的是整个仓库的 refs，在 worktree 里跑会把主仓库的工作副本搞成一半新一半旧。

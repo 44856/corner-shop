@@ -1,0 +1,26 @@
+# 谁改哪里要找谁 review。
+#
+# 单人 owner 不是集权，是明确的问责点：改坏了能直接找到人，
+# 而不是"大家都以为别人看过"。等第三人加入，把对应目录分给他即可。
+#
+# 注意：CODEOWNERS 不支持行尾注释，说明一律写在上一行。
+
+*                       @44856
+
+# 全局配置：输入映射、autoload、默认入口。单点维护，改动必须 review。
+/project.godot          @44856
+
+# 回归测试、运行脚本、CI 本身
+/tools/                 @44856
+/.github/               @44856
+
+# 共享造型库：扇入高，改动会同时影响多个场景
+/scripts/kit.gd         @44856
+/scripts/store.gd       @44856
+/scripts/street.gd      @44856
+/scripts/props.gd       @44856
+
+# 关卡编排
+/scripts/store_walk.gd  @44856
+/scripts/grassland.gd   @44856
+/scripts/opening_flow.gd @44856

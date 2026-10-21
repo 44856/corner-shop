@@ -76,6 +76,24 @@ func is_done() -> bool:
 	return _state == State.DONE
 
 
+## 以下三个是给 probe 的公开查询口 —— 测试不该直接摸 `_truck` / `_hit_done`
+## 这类内部字段，改个字段名不该让回归测试静默失效。
+
+## 车是否已经撞到人（命中瞬间置位，早于 DONE）
+func hit_landed() -> bool:
+	return _hit_done
+
+
+## 当前在场的货车节点；没生成或已回收时为 null
+func spawned_truck() -> Node3D:
+	return _truck
+
+
+## 人物是否进过店（车祸的触发前置条件）
+func store_visited() -> bool:
+	return _store_visited
+
+
 func _exit_tree() -> void:
 	# 兜底：慢镜头期间场景被切走，别把全局时间留在 0.35 倍
 	Engine.time_scale = 1.0
