@@ -208,6 +208,18 @@ static func box(parent: Node3D, size: Vector3, pos: Vector3, mat: Material, rot:
 ## 三棱柱：顶点朝上、沿 +Z 挤出，正面（三角形）正好朝 +Z。
 ## 不用 PrismMesh 是因为它的朝向由引擎定死，而饭团这类包装必须能直接对齐
 ## 「正面 = +Z」的约定 —— 否则每摆一个都要再猜一次欧拉角。
+##
+## 两个坑都记在这儿，省得下次再来一遍：
+##
+## 1. 绕序：Godot 的正面是**顺时针**（从外面看）。按右手定则朝外的顺序直接提交，
+##    引擎会当成背面 —— 主 pass（cull_back）把它剔掉，而 next_pass 的描边壳
+##    （cull_front）偏偏保留了它，外扩 0.012 后整片盖成描边色。
+##    结果不是「看不见」，是「看见一块纯描边色的三角」，很难往绕序上想。
+##
+## 2. 法线：不能用 generate_normals()。它按**顶点位置**平均，三棱柱的每条棱上
+##    三个面共用一个位置，于是三个面被糊成圆角。公会山墙是 25 m 宽的大平板，
+##    平均出来的法线偏向斜上方，ndl 掉到暗部阈值以下，整片墙永远发灰紫。
+##    这里逐三角形算面法线、显式 set_normal()，硬边实体的样子才对。
 static func prism(parent: Node3D, size: Vector3, pos: Vector3, mat: Material, rot: Vector3 = Vector3.ZERO, shadow: bool = true) -> MeshInstance3D:
 	var hw := size.x * 0.5
 	var hh := size.y * 0.5
@@ -215,24 +227,36 @@ static func prism(parent: Node3D, size: Vector3, pos: Vector3, mat: Material, ro
 	var apex := Vector3(0, hh, 0)
 	var left := Vector3(-hw, -hh, 0)
 	var right := Vector3(hw, -hh, 0)
+	var fz := Vector3(0, 0, hd)
+
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	for v in [apex, left, right]:
-		st.add_vertex(v + Vector3(0, 0, hd))
-	for v in [apex, right, left]:
-		st.add_vertex(v - Vector3(0, 0, hd))
-	# 侧面按 b→a / c→b / a→c 的顺序，法线才朝外（反过来会整片被背面剔除）
+	_tri(st, apex + fz, left + fz, right + fz)
+	_tri(st, apex - fz, right - fz, left - fz)
+	# 三个侧面，每个矩形拆两个三角形
 	for edge in [[left, apex], [right, left], [apex, right]]:
 		var p0: Vector3 = edge[0]
 		var p1: Vector3 = edge[1]
-		for v in [p0 + Vector3(0, 0, hd), p1 + Vector3(0, 0, hd), p1 - Vector3(0, 0, hd),
-				p0 + Vector3(0, 0, hd), p1 - Vector3(0, 0, hd), p0 - Vector3(0, 0, hd)]:
-			st.add_vertex(v)
-	st.generate_normals()
+		var a := p0 + fz
+		var b := p1 + fz
+		var c := p1 - fz
+		var d := p0 - fz
+		_tri(st, a, b, c)
+		_tri(st, a, c, d)
 	var mi := MeshInstance3D.new()
 	mi.mesh = st.commit()
 	mi.material_override = mat
 	return _finish(parent, mi, pos, rot, shadow)
+
+
+## 提交一个三角形。调用方按「右手定则法线朝外」的顺序给 a/b/c，
+## 这里负责两件事：算平直面法线（写死，不让引擎平均），
+## 发射时把 b/c 换位（右手朝外 → 引擎眼里的正面）。
+static func _tri(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3) -> void:
+	var n := (b - a).cross(c - a).normalized()
+	for v in [a, c, b]:
+		st.set_normal(n)
+		st.add_vertex(v)
 
 
 static func plane(parent: Node3D, size: Vector2, pos: Vector3, mat: Material, rot: Vector3 = Vector3.ZERO, shadow: bool = false) -> MeshInstance3D:
