@@ -6,7 +6,7 @@
 
 | 版本 | 场景 | 玩法 |
 | --- | --- | --- |
-| **可玩版**（当前入口） | `scenes/store_walk.tscn` | 第三人称走进便利店：自动门、店内交互、跟随镜头 |
+| **可玩版**（当前入口） | `scenes/store_walk.tscn` | 第三人称走进便利店：自动门、店内交互、跟随镜头；进过店再下马路会被货车撞 |
 | 微缩展示版 | `scenes/main.tscn` | 轨道相机俯瞰整个 11.2m 底座，原版编排 |
 | 编排备份 | `scenes/diorama_orbit.tscn` | 改造前编排的冻结副本（见「备份」一节） |
 
@@ -53,6 +53,9 @@ F5 默认进入 `scenes/store_walk.tscn`：先是一段从微缩全景推近到�
 进店之后镜头会自动换成短焦段（1.6m / FOV 70° / 右肩偏移），
 曝光从 1.12 收到 0.92 —— 否则店内三盏暖光正对着天花板，会直接烧白。
 
+**车祸事件**：先进店，再走出门、下到马路上（南侧车行道），右侧会驶来一辆
+大货车。这是一次性的演出，撞完人会回到出生点，之后在马路上走就安全了。
+
 ## 备份：改造前的编排
 
 改造前先做了两层备份，任何一层都能回到原样：
@@ -78,6 +81,8 @@ scenes/opening_flow.tscn  原开场流程（雨夜三幕 → 草原）
 scenes/grassland.tscn   异世界草原
 
 scripts/store_walk.gd   可玩版编排：装配世界 / 玩家 / 门 / HUD / 交互 / 开场推镜 / 截图模式
+scripts/truck.gd        大货车造型（6.2m 厢式，材质带台面裁剪）
+scripts/truck_event.gd  车祸事件：触发条件 / 冲刺 / 命中 / 收黑 / 复位
 scripts/world_env.gd    环境、月光、雨、涟漪（从 main.gd 抽出，参数逐项照搬）
 scripts/collision_layout.gd 简化碰撞层：地面 / 墙 / 货架 / 台阶斜面 / 街道设施 / 边界
 scripts/autodoor.gd     自动门：两片带碰撞的滑动门叶 + 感应 + 叮咚音
@@ -94,6 +99,7 @@ scripts/backup/diorama_orbit.gd 改造前编排的冻结副本
 scripts/dialogue/       对话解析与播放（草原用）
 shaders/                三渲二 / 描边 / 砖缝 / 玻璃 / 自发光 / 湿光 / 雨 / 涟漪
 tools/walk_probe.tscn   自动行走回归测试（见「自测」）
+tools/truck_probe.tscn  车祸事件回归测试（见「自测」）
 ```
 
 ## 交互实现要点
@@ -111,6 +117,15 @@ tools/walk_probe.tscn   自动行走回归测试（见「自测」）
   Alpha 径向渐变面片，每帧向下打一条射线贴地，跳起来时缩小变淡。
 - **声音**：门铃 / 服务铃是运行时合成的 PCM（`sfx.gd`），雨声与店内低频复用现成 wav。
   进店时雨声压到 −26dB、低频抬到 −24dB，玻璃把雨关在了外面。
+- **车祸事件**：进过店（区域判定 `"in"`）之后踩到南侧车行道（`z > 2.05`）触发，
+  锁输入 → 0.42s 预警喇叭 → 货车从台面外 9m 处以 13m/s 冲进来。
+  车头距人 4.5m 时 `Engine.time_scale` 收到 0.35（慢镜头），命中后击飞 + 白闪 +
+  镜头抖 + 闷响，0.22s 收黑，黑场里复位到出生点。详见 `docs/任务03-马路车祸事件.md`。
+- **超出台面的部分不渲染**：`toon / outline / glow` 三个 shader 都加了
+  `clip_on / clip_min / clip_max`，片元世界坐标越界就 `discard`。
+  货车一律用 `kit.toon_clipped()` / `glow_clipped()` 生成材质 ——
+  `kit.toon()` 是按参数缓存的，裁剪参数写进缓存会顺带把整条街裁掉。
+  裁剪盒就是 `kit.PLATFORM_CLIP`（x/z ±5.6），切口和底座边缘严丝合缝。
 
 ## 自测
 
@@ -122,6 +137,14 @@ tools/walk_probe.tscn   自动行走回归测试（见「自测」）
 输出 9 条断言（门是否打开、是否跨过门槛、是否踩上 0.25m 店内地板、
 能否走到冷柜前、提示文案是否正确、离开后门是否关上、能否爬上 16cm 路缘）。
 退出码非 0 表示有断言失败，改完几何以后跑一遍就知道有没有把路堵死。
+
+```bash
+# 无渲染，只跑事件状态机：没进店不触发 → 进店 → 下马路 → 命中 → 复位 → 车回收
+./Godot_v4.7.2-stable_linux.x86_64 --headless --path . res://tools/truck_probe.tscn
+```
+
+14 条断言：触发前置条件、生成点在台面外、材质带裁剪参数、命中与击飞、
+复位位置与输入锁、车出台面后回收、事件不重复触发。
 
 ## 美术要点
 
@@ -141,12 +164,16 @@ tools/walk_probe.tscn   自动行走回归测试（见「自测」）
 - 门的感应范围与关门迟疑：`autodoor.gd` 的 `open_radius` / `close_grace`。
 - 店内布局：`store.gd` 的 `layout(walkable)`（改完记得跑一遍 `walk_probe`）。
 - 交互点与文案：`store_walk.gd` 的 `_setup_interactions()` 与 `_on_*` 回调。
+- 车祸事件：`truck_event.gd` 顶部的 `SIDE`（从哪一侧驶入，改符号换边）/ `SPEED` /
+  `SPAWN_GAP` / `LANE_MIN..MAX` / `SLOWMO_GAP` / `SLOWMO_SCALE` / `RESPAWN`；
+  车的尺寸与轮位在 `truck.gd` 的 `L` / `W` / `AXLES`。
+- 台面裁剪范围：`kit.gd` 的 `PLATFORM_CLIP`（和 `street.gd` 的 `B` 必须一致）。
 
 ## 调试截图
 
 ```bash
-# 可玩版：5 张（全景 + 街道 + 门口 + 店内 + 货架过道）→ shots/walk_*.png
-./Godot_v4.7.2-stable_linux.x86_64 --path . -- --shot
+# 可玩版：7 张（全景 + 街道 + 门口 + 店内 + 货架过道 + 货车裁剪 + 货车压脸）
+./Godot_v4.7.2-stable_linux.x86_64 --path . res://scenes/store_walk.tscn -- --shot
 
 # 微缩展示版：7 个轨道机位 → shots/a_front.png 等
 ./Godot_v4.7.2-stable_linux.x86_64 --path . res://scenes/main.tscn -- --shot

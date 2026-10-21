@@ -12,6 +12,7 @@ extends Node3D
 ##   店内物件    —— 冷柜 / 货架 / 服务铃 / 门口的猫，按 E 出反馈
 ##   摄像机      —— 第三人称弹簧臂跟随，街道 ↔ 店内自动切换焦段与距离
 ##   声音        —— 雨声 / 店内低频 / 自动门叮咚 / 服务铃（全部程序化或复用现有 wav）
+##   马路车祸    —— 进过店之后走下马路，右侧驶来一辆大货车（见 truck_event.gd）
 
 const Street := preload("res://scripts/street.gd")
 const Store := preload("res://scripts/store.gd")
@@ -23,6 +24,7 @@ const PlayerController := preload("res://scripts/player_controller.gd")
 const Hud := preload("res://scripts/hud.gd")
 const Hub := preload("res://scripts/interaction_hub.gd")
 const Sfx := preload("res://scripts/sfx.gd")
+const TruckEvent := preload("res://scripts/truck_event.gd")
 
 ## 出生点：人行道上、雨棚底下，正对店门
 const SPAWN := Vector3(0.35, 0.17, 0.95)
@@ -47,9 +49,11 @@ var player: CharacterBody3D
 var door                       # autodoor.gd（动态调用，故不加类型）
 var hud                        # hud.gd
 var hub                        # interaction_hub.gd
+var truck_event                # truck_event.gd
 var env: Environment
 
 var _inside := false
+var _zone := "side"
 var _shooting := false
 var _shadow: MeshInstance3D
 var _rain: AudioStreamPlayer
@@ -69,6 +73,7 @@ func _ready() -> void:
 	_setup_hud()
 	_setup_interactions()
 	_setup_audio()
+	_setup_truck_event()
 
 	if "--shot" in OS.get_cmdline_user_args():
 		_take_shots()
@@ -188,6 +193,14 @@ func _setup_audio() -> void:
 	_hum = _looping_player("res://audio/drone_loop.wav", -40.0)
 
 
+## 马路车祸：独立节点，自己盯着「人是不是站在车行道上」
+func _setup_truck_event() -> void:
+	truck_event = TruckEvent.new()
+	truck_event.name = "TruckEvent"
+	add_child(truck_event)
+	truck_event.bind(player, hud)
+
+
 func _looping_player(path: String, db: float) -> AudioStreamPlayer:
 	var p := AudioStreamPlayer.new()
 	var s := load(path) as AudioStreamWAV
@@ -260,9 +273,9 @@ func _process(delta: float) -> void:
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 	var p: Vector3 = player.global_position
-	var inside := INTERIOR.has_point(p)
-	if inside != _inside:
-		_on_zone_changed(inside)
+	var zone := _zone_at(p)
+	if zone != _zone:
+		_on_zone_changed(zone)
 
 	_update_shadow()
 
@@ -275,13 +288,39 @@ func _process(delta: float) -> void:
 		_hum.volume_db = lerpf(_hum.volume_db, hum_db, 1.0 - exp(-1.6 * delta))
 
 
-func _on_zone_changed(inside: bool) -> void:
-	_inside = inside
-	hud.set_zone("店内 · HOSHI MART" if inside else "店外 · 人行道", inside)
+## 三个区域：店内 / 人行道 / 车行道。
+## 人行道是 L 形（x −1.9..5.6，z −5.6..1.9），其余落在台面上的都是沥青路面。
+func _zone_at(p: Vector3) -> String:
+	if INTERIOR.has_point(p):
+		return "in"
+	if p.z > 2.05 or p.x < -1.95:
+		return "road"
+	return "side"
+
+
+func _on_zone_changed(zone: String) -> void:
+	var was_inside := _inside
+	_zone = zone
+	_inside = zone == "in"
+
+	if _inside and truck_event != null:
+		# 「进过店」是车祸事件的前置条件，只记第一次
+		truck_event.notify_store_entered()
+
+	match zone:
+		"in":
+			hud.set_zone("店内 · HOSHI MART", true)
+		"road":
+			hud.set_zone("马路 · 车行道", false)
+		_:
+			hud.set_zone("店外 · 人行道", false)
+
 	# 截图模式下机位由 _take_shots 直接指定，别让区域切换把它拉回去
 	if _shooting:
 		return
-	if inside:
+	if _inside == was_inside:
+		return
+	if _inside:
 		player.set_camera_profile(CAM_IN["dist"], CAM_IN["height"], CAM_IN["fov"],
 			CAM_IN["shoulder"], 3.6)
 		hud.toast("暖光、冷柜的嗡嗡声，还有收银台上那本翻到一半的杂志。", 4.0)
@@ -340,6 +379,8 @@ func _take_shots() -> void:
 	player.input_locked = false
 	# 截图时手动控制门的开合，别让感应器把「关着」的那张也打开
 	door.enabled = false
+	# 摆拍的时候别让车祸事件自己触发
+	truck_event.auto_trigger = false
 	hud.fade_in(0.0)
 	DirAccess.make_dir_recursive_absolute("res://shots")
 
@@ -390,5 +431,54 @@ func _take_shots() -> void:
 		await RenderingServer.frame_post_draw
 		get_viewport().get_texture().get_image().save_png("res://shots/%s.png" % s["name"])
 		print("saved ", s["name"])
+
+	# ---- 货车：两张。一张验证台面裁剪，一张是压到人面前的构图 ----
+	env.tonemap_exposure = EXPOSE_OUT
+	hub.enabled = false
+	hud.hide_prompt()
+	hud.visible = false
+
+	# 车尾还在台面外（x = −5.6 以远）：只画台面内的那一段
+	truck_event.debug_show(-4.2, 3.6)
+	var tcam := Camera3D.new()
+	tcam.fov = 40.0
+	tcam.near = 0.1
+	tcam.far = 200.0
+	add_child(tcam)
+	# 高一点、偏南：把台面西缘那条线一起拍进去，切在哪儿才看得出来
+	tcam.global_position = Vector3(1.6, 6.0, 9.2)
+	tcam.look_at(Vector3(-4.9, 0.7, 3.3), Vector3.UP)
+	tcam.current = true
+	player.camera.current = false
+	for i in 10:
+		await get_tree().process_frame
+	await RenderingServer.frame_post_draw
+	get_viewport().get_texture().get_image().save_png("res://shots/walk_f_truck_clip.png")
+	print("saved walk_f_truck_clip")
+	tcam.queue_free()
+	player.camera.current = true
+	hud.visible = true
+
+	# 站在马路中间、车从右侧压过来：这一张用侧机位，人、车头、店招同框
+	truck_event.debug_show(-3.9, 3.5)
+	player.global_position = Vector3(0.55, 0.0, 2.5)
+	player.face(-PI * 0.5)
+	var hcam := Camera3D.new()
+	hcam.fov = 46.0
+	hcam.near = 0.1
+	hcam.far = 200.0
+	add_child(hcam)
+	hcam.global_position = Vector3(3.75, 1.85, 5.15)
+	hcam.look_at(Vector3(-1.8, 1.05, 3.1), Vector3.UP)
+	hcam.current = true
+	player.camera.current = false
+	_update_shadow()
+	for i in 10:
+		await get_tree().process_frame
+	await RenderingServer.frame_post_draw
+	get_viewport().get_texture().get_image().save_png("res://shots/walk_g_truck_hit.png")
+	print("saved walk_g_truck_hit")
+	hcam.queue_free()
+	player.camera.current = true
 
 	get_tree().quit()

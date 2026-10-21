@@ -46,12 +46,56 @@ static func tap() -> AudioStreamWAV:
 	return s
 
 
+## 货车喇叭：两个音叠一起（约 392 + 466Hz），加一层八度泛音当「金属壳」
+static func horn() -> AudioStreamWAV:
+	if _cache.has("horn"):
+		return _cache["horn"]
+	var buf := _blank(1.0)
+	_add_tone(buf, 392.0, 0.0, 0.95, 3.4, 0.40)
+	_add_tone(buf, 466.0, 0.0, 0.95, 3.4, 0.32)
+	_add_tone(buf, 784.0, 0.0, 0.95, 4.2, 0.10)
+	var s := _to_wav(buf)
+	_cache["horn"] = s
+	return s
+
+
+## 撞击：低频闷响 + 一层短噪声（金属/玻璃碎掉的质感）
+static func impact() -> AudioStreamWAV:
+	if _cache.has("impact"):
+		return _cache["impact"]
+	var buf := _blank(1.1)
+	_add_tone(buf, 64.0, 0.0, 0.60, 5.5, 0.9)
+	_add_tone(buf, 41.0, 0.0, 0.95, 3.2, 0.65)
+	_add_noise(buf, 0.0, 0.30, 11.0, 0.55)
+	_add_noise(buf, 0.02, 0.18, 26.0, 0.30)
+	var s := _to_wav(buf)
+	_cache["impact"] = s
+	return s
+
+
 # ---------------------------------------------------------------- 合成
 
 static func _blank(seconds: float) -> PackedFloat32Array:
 	var buf := PackedFloat32Array()
 	buf.resize(int(RATE * seconds))
 	return buf
+
+
+## 噪声：撞击、摩擦之类不需要音高的部分。
+## 用一个一阶低通把白噪声压暗，否则会像收音机里的沙沙声。
+static func _add_noise(buf: PackedFloat32Array, start: float, dur: float,
+		decay: float, gain: float) -> void:
+	var i0 := int(start * RATE)
+	var n := int(dur * RATE)
+	var lp := 0.0
+	for i in n:
+		var idx := i0 + i
+		if idx < 0 or idx >= buf.size():
+			break
+		var t := float(i) / float(RATE)
+		var env := exp(-decay * t) * minf(1.0, t * 300.0)
+		lp = lerpf(lp, randf() * 2.0 - 1.0, 0.35)
+		buf[idx] += lp * env * gain
 
 
 ## 往缓冲里叠一个带衰减包络的正弦。

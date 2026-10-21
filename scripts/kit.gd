@@ -15,6 +15,10 @@ static var _outline_cache: Dictionary = {}
 static var _glow_cache: Dictionary = {}
 static var _soft_cache: Dictionary = {}
 
+## 台面（微缩底座顶面）的世界包围盒：x/z ±5.6，高度留足。
+## 着色器裁剪用它 —— 超出台面的片元直接 discard，不渲染。
+const PLATFORM_CLIP := AABB(Vector3(-5.6, -2.0, -5.6), Vector3(11.2, 10.0, 11.2))
+
 # ---------------------------------------------------------------- 材质
 
 static func outline_mat(w: float) -> ShaderMaterial:
@@ -52,6 +56,35 @@ static func toon(color: Color, p: Dictionary = {}) -> ShaderMaterial:
 	if line > 0.0:
 		m.next_pass = outline_mat(line)
 	_cache[key] = m
+	return m
+
+
+## 带台面裁剪的三渲二材质。
+## 和 toon() 长得一样，但**不走缓存**：clip_* 是逐材质的 uniform，
+## 共用缓存会让参数串到别的物体上（比如整条街都被裁掉）。
+## 描边 pass 也一起复制并打上同一组参数，否则车身裁了、描边壳还在。
+static func toon_clipped(color: Color, p: Dictionary = {}, clip: AABB = PLATFORM_CLIP) -> ShaderMaterial:
+	var m := toon(color, p).duplicate() as ShaderMaterial
+	_apply_clip(m, clip)
+	var op := m.next_pass as ShaderMaterial
+	if op != null:
+		op = op.duplicate() as ShaderMaterial
+		_apply_clip(op, clip)
+		m.next_pass = op
+	return m
+
+
+static func _apply_clip(m: ShaderMaterial, clip: AABB) -> void:
+	m.set_shader_parameter("clip_on", true)
+	m.set_shader_parameter("clip_min", clip.position)
+	m.set_shader_parameter("clip_max", clip.end)
+
+
+## 带台面裁剪的自发光材质（灯板 / 尾灯）。不走缓存，理由同 toon_clipped。
+static func glow_clipped(color: Color, strength: float = 1.6, scan: float = 0.0,
+		clip: AABB = PLATFORM_CLIP) -> ShaderMaterial:
+	var m := glow(color, strength, scan).duplicate() as ShaderMaterial
+	_apply_clip(m, clip)
 	return m
 
 

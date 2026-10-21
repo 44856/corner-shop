@@ -21,6 +21,9 @@ func _ready() -> void:
 
 	player = world.player
 	player.input_locked = false
+	# 这条测试走到马路上去是为了验路缘；车祸事件由 truck_probe 单独测，
+	# 否则半路被车撞飞，后面几条断言全部作废
+	world.truck_event.auto_trigger = false
 	player.global_position = Vector3(0.35, 0.17, 0.95)
 	await get_tree().physics_frame
 
