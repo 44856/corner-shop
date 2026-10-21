@@ -17,7 +17,23 @@ jobs:
     timeout-minutes: 25
 
     steps:
+      # 必须 lfs: true。默认情况下 checkout 只拿指针文本（130 字节），
+      # Godot 导入 assets 会失败，probe 全部报「资源加载不了」。
       - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      # 提前失败：如果哪天 lfs: true 被删掉，这里会直接说明原因，
+      # 而不是让 30 条 probe 断言各自报「资源加载不了」。
+      - name: 确认 LFS 对象已展开
+        run: |
+          size=$(stat -c%s assets/characters/gaia.glb)
+          echo "gaia.glb = ${size} bytes"
+          if [ "$size" -lt 1000000 ]; then
+            echo "assets 拿到的是 LFS 指针文本（约 130 字节），不是真实文件。"
+            echo "检查 actions/checkout 的 lfs: true。"
+            exit 1
+          fi
 
       - name: 缓存引擎
         id: godot-cache
