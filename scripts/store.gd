@@ -13,22 +13,69 @@ const TOP := 3.58
 const GLASS_Z := Z1 - 0.11
 
 
-static func build(root: Node3D) -> void:
+## opts:
+##   walkable  = true 时店内改成「能走进去」的布局：门洞打通、货架留出 ≥0.8m 过道、
+##               收银台挪到东墙。默认 false，保持原来那个只做橱窗展示的摆法。
+##   auto_door = true 时不再画两扇门叶，交给 autodoor.gd 画（它要带着碰撞一起滑）
+static func build(root: Node3D, opts: Dictionary = {}) -> void:
+	var walkable: bool = opts.get("walkable", false)
+	var auto_door: bool = opts.get("auto_door", false)
 	var g := K.group(root, "Store")
-	_shell(g)
-	_facade(g)
+	_shell(g, walkable)
+	_facade(g, auto_door)
 	_west_wall(g)
 	_awning(g)
 	_signage(g)
 	_roof(g)
-	_interior(g)
+	_interior(g, walkable)
+
+
+## 店内布局的唯一真源：视觉（_interior）与碰撞（collision_layout.gd）都读这里，
+## 免得改一个数字以后「看得见走不过去」。
+static func layout(walkable: bool) -> Dictionary:
+	if walkable:
+		return {
+			# 两块横向货架，x -0.95..0.95，中间留 0.83m 过道
+			"racks": [
+				{"x0": -0.95, "x1": 0.95, "z": -3.85},
+				{"x0": -0.95, "x1": 0.95, "z": -2.50},
+			],
+			# 冷柜贴后墙，前面留 0.85m 站立区
+			"fridge": {"x0": 0.15, "x1": 2.55, "z0": -5.38, "z1": -4.96},
+			# 收银台沿东墙摆，正面朝 −X（绕 Y 转 −90°）。
+			# cx 贴到 2.58：台面背后正好抵住内墙（2.88），过道留出 1.33m。
+			"counter": {"cx": 2.58, "cz": -3.00, "rot": -90.0, "w": 1.1, "d": 0.6},
+			"magazine": {"x0": -1.48, "x1": -1.03, "z0": -2.65, "z1": -1.25},
+			"promos": [Vector3(-0.55, FLOOR + 0.3, -1.35), Vector3(2.45, FLOOR + 0.3, -1.45)],
+		}
+	return {
+		"racks": [
+			{"x0": -1.20, "x1": 2.30, "z": -4.25},
+			{"x0": -1.20, "x1": 2.30, "z": -3.20},
+			{"x0": -1.20, "x1": 2.30, "z": -2.15},
+		],
+		"fridge": {"x0": 0.15, "x1": 2.55, "z0": -5.38, "z1": -4.96},
+		"counter": {"cx": 2.10, "cz": -1.55, "rot": 0.0, "w": 1.1, "d": 0.6},
+		"magazine": {"x0": -1.475, "x1": -1.025, "z0": -2.65, "z1": -1.25},
+		"promos": [Vector3(-0.55, FLOOR + 0.3, -1.35), Vector3(1.75, FLOOR + 0.3, -1.40)],
+	}
+
+## 门叶几何（视觉与碰撞共用）。两扇门各走一条轨道，错开 3cm 免得 z-fighting。
+## slide 是开启时相对初始位置的 x 位移：各自滑到旁边的固定玻璃后面。
+static func door_leaves() -> Array:
+	return [
+		{"x": 0.03, "z": GLASS_Z - 0.03, "w": 0.62, "h": 2.24, "slide": -0.66},
+		{"x": 0.68, "z": GLASS_Z + 0.03, "w": 0.62, "h": 2.24, "slide": 0.66},
+	]
 
 
 # ---------------------------------------------------------------- 外壳
 
-static func _shell(g: Node3D) -> void:
+static func _shell(g: Node3D, walkable: bool) -> void:
 	var wall := K.toon(Color("#918a7c"), {"shade": 0.42, "rim": 0.18, "line": 0.009})
-	var inner := K.toon(Color("#bdb6a8"), {"shade": 0.7, "rim": 0.0, "line": 0.0})
+	# 可玩版会被人仰视天花板：三盏暖光就吊在它下面 0.4m，用原来的亮色会直接烧白
+	var inner := K.toon(Color("#9c9587") if walkable else Color("#bdb6a8"),
+		{"shade": 0.7, "rim": 0.0, "line": 0.0})
 
 	K.box(g, Vector3(0.22, TOP - FLOOR, Z1 - Z0), Vector3(X0 + 0.11, (TOP + FLOOR) * 0.5, (Z0 + Z1) * 0.5), wall)
 	K.box(g, Vector3(0.22, TOP - FLOOR, Z1 - Z0), Vector3(X1 - 0.11, (TOP + FLOOR) * 0.5, (Z0 + Z1) * 0.5), wall)
@@ -36,9 +83,26 @@ static func _shell(g: Node3D) -> void:
 
 	# 店面基座（踢脚墙）
 	var tile := K.toon(Color("#3a3f47"), {"shade": 0.45, "rim": 0.15, "line": 0.008})
-	K.box(g, Vector3(X1 - X0, 0.55, 0.22), Vector3((X0 + X1) * 0.5, FLOOR + 0.275, Z1 - 0.11), tile)
-	for i in 2:
-		K.box(g, Vector3(X1 - X0, 0.012, 0.012), Vector3((X0 + X1) * 0.5, FLOOR + 0.24 + i * 0.22, Z1 + 0.002), K.toon(Color("#43474f"), {"line": 0.0}), Vector3.ZERO, false)
+	# 门洞净宽（两扇门叶合计）。walkable 时踢脚墙与压条都按这两段断开，
+	# 否则 0.55m 高的踢脚墙会横在门口，人是走不进去的。
+	var segs: Array = [[X0, -0.33], [1.04, X1]]
+	if walkable:
+		for s in segs:
+			var w: float = s[1] - s[0]
+			K.box(g, Vector3(w, 0.55, 0.22), Vector3((s[0] + s[1]) * 0.5, FLOOR + 0.275, Z1 - 0.11), tile)
+	else:
+		K.box(g, Vector3(X1 - X0, 0.55, 0.22), Vector3((X0 + X1) * 0.5, FLOOR + 0.275, Z1 - 0.11), tile)
+
+	# 踢脚墙上的两道细压条，同样在门洞处断开
+	var seam := K.toon(Color("#43474f"), {"line": 0.0})
+	if walkable:
+		for s in segs:
+			var sw: float = s[1] - s[0]
+			for i in 2:
+				K.box(g, Vector3(sw, 0.012, 0.012), Vector3((s[0] + s[1]) * 0.5, FLOOR + 0.24 + i * 0.22, Z1 + 0.002), seam, Vector3.ZERO, false)
+	else:
+		for i in 2:
+			K.box(g, Vector3(X1 - X0, 0.012, 0.012), Vector3((X0 + X1) * 0.5, FLOOR + 0.24 + i * 0.22, Z1 + 0.002), seam, Vector3.ZERO, false)
 
 	# 玻璃上方的过梁
 	K.box(g, Vector3(X1 - X0, TOP - 2.55, 0.22), Vector3((X0 + X1) * 0.5, (TOP + 2.55) * 0.5, Z1 - 0.11), wall)
@@ -52,7 +116,7 @@ static func _shell(g: Node3D) -> void:
 
 # ---------------------------------------------------------------- 立面
 
-static func _facade(g: Node3D) -> void:
+static func _facade(g: Node3D, auto_door: bool = false) -> void:
 	var frame := K.toon(Color("#242b34"), {"shade": 0.55, "rim": 0.25, "line": 0.006})
 	var glass := K.glass(Color(0.45, 0.62, 0.8, 0.08), 0.35)
 	var f := K.group(g, "Facade")
@@ -70,14 +134,17 @@ static func _facade(g: Node3D) -> void:
 	K.box(f, Vector3(1.7, 1.82, 0.02), Vector3(2.0, 1.64, GLASS_Z), glass, Vector3.ZERO, false)
 
 	# 自动门（双扇）
-	K.box(f, Vector3(0.62, 2.24, 0.02), Vector3(0.03, 1.32, GLASS_Z - 0.03), glass, Vector3.ZERO, false)
-	K.box(f, Vector3(0.62, 2.24, 0.02), Vector3(0.68, 1.32, GLASS_Z + 0.03), glass, Vector3.ZERO, false)
-	for dx in [0.03, 0.68]:
-		var pz: float = GLASS_Z - 0.03 if dx < 0.5 else GLASS_Z + 0.03
-		K.box(f, Vector3(0.66, 0.06, 0.05), Vector3(dx, 2.42, pz), frame)
-		K.box(f, Vector3(0.66, 0.05, 0.05), Vector3(dx, 0.23, pz), frame)
-		K.box(f, Vector3(0.05, 2.24, 0.05), Vector3(dx - 0.31, 1.32, pz), frame)
-		K.box(f, Vector3(0.05, 2.24, 0.05), Vector3(dx + 0.31, 1.32, pz), frame)
+	# auto_door 模式下门叶交给 autodoor.gd：它要把玻璃 + 门框 + 把手打包成可滑动、
+	# 带碰撞的一整片，静态这里再画一遍会重叠成两层。
+	if not auto_door:
+		for leaf in door_leaves():
+			var lx: float = leaf["x"]
+			var lz: float = leaf["z"]
+			K.box(f, Vector3(leaf["w"], leaf["h"], 0.02), Vector3(lx, 1.32, lz), glass, Vector3.ZERO, false)
+			K.box(f, Vector3(0.66, 0.06, 0.05), Vector3(lx, 2.42, lz), frame)
+			K.box(f, Vector3(0.66, 0.05, 0.05), Vector3(lx, 0.23, lz), frame)
+			K.box(f, Vector3(0.05, 2.24, 0.05), Vector3(lx - 0.31, 1.32, lz), frame)
+			K.box(f, Vector3(0.05, 2.24, 0.05), Vector3(lx + 0.31, 1.32, lz), frame)
 	# 自动门标识条
 	var strip := K.toon(Color("#1b7259"), {"shade": 0.7, "line": 0.0, "rim": 0.0})
 	K.box(f, Vector3(1.2, 0.1, 0.03), Vector3(0.35, 2.16, GLASS_Z + 0.06), strip, Vector3.ZERO, false)
@@ -94,8 +161,9 @@ static func _facade(g: Node3D) -> void:
 	K.quad(f, Vector2(0.04, 1.2), Vector3(2.3, 1.75, GLASS_Z + 0.03), streak, Vector3(0, 0, 16), false)
 
 	# 门把手
-	K.box(f, Vector3(0.04, 0.32, 0.03), Vector3(0.26, 1.12, GLASS_Z - 0.08), frame)
-	K.box(f, Vector3(0.04, 0.32, 0.03), Vector3(0.44, 1.12, GLASS_Z + 0.08), frame)
+	if not auto_door:
+		K.box(f, Vector3(0.04, 0.32, 0.03), Vector3(0.26, 1.12, GLASS_Z - 0.08), frame)
+		K.box(f, Vector3(0.04, 0.32, 0.03), Vector3(0.44, 1.12, GLASS_Z + 0.08), frame)
 
 	# 玻璃上的海报
 	var poster_a := K.toon(Color("#c93f34"), {"shade": 0.8, "line": 0.004, "rim": 0.0, "emit": Color("#c93f34"), "emit_amt": 0.12})
@@ -286,47 +354,74 @@ static func _roof(g: Node3D) -> void:
 
 # ---------------------------------------------------------------- 店内
 
-static func _interior(g: Node3D) -> void:
+static func _interior(g: Node3D, walkable: bool) -> void:
 	var it := K.group(g, "Interior")
 	var shelf := K.toon(Color("#8a8477"), {"shade": 0.6, "rim": 0.0, "line": 0.0})
 	var shelf_dark := K.toon(Color("#4d4a43"), {"shade": 0.7, "line": 0.0})
+	var L := layout(walkable)
 
 	# 冷柜（后墙）
+	var fr: Dictionary = L["fridge"]
+	var fc := Vector3((fr["x0"] + fr["x1"]) * 0.5, 0.0, (fr["z0"] + fr["z1"]) * 0.5)
+	var fw: float = fr["x1"] - fr["x0"]
+	var fd: float = fr["z1"] - fr["z0"]
 	var fridge := K.toon(Color("#a8b2b9"), {"shade": 0.8, "rim": 0.0, "line": 0.0})
-	K.box(it, Vector3(2.4, 2.0, 0.42), Vector3(1.35, FLOOR + 1.0, Z0 + 0.33), fridge)
-	K.box(it, Vector3(2.28, 1.64, 0.03), Vector3(1.35, FLOOR + 1.07, Z0 + 0.55), K.glow(Color("#bfe0ff"), 0.75))
+	K.box(it, Vector3(fw, 2.0, fd), Vector3(fc.x, FLOOR + 1.0, fc.z), fridge)
+	K.box(it, Vector3(fw - 0.12, 1.64, 0.03), Vector3(fc.x, FLOOR + 1.07, fr["z1"] + 0.03), K.glow(Color("#bfe0ff"), 0.75))
 	for i in 4:
-		K.box(it, Vector3(2.22, 0.04, 0.04), Vector3(1.35, FLOOR + 0.38 + i * 0.41, Z0 + 0.57), shelf_dark, Vector3.ZERO, false)
+		K.box(it, Vector3(fw - 0.18, 0.04, 0.04), Vector3(fc.x, FLOOR + 0.38 + i * 0.41, fr["z1"] + 0.05), shelf_dark, Vector3.ZERO, false)
 	for row in 4:
 		for col in 9:
 			var c: Color = [Color("#d94a3c"), Color("#3f7fd9"), Color("#e8c34a"), Color("#f0eee6"), Color("#4aa86a")][(row * 3 + col) % 5]
-			K.cyl(it, 0.043, 0.19, Vector3(0.33 + col * 0.225, FLOOR + 0.52 + row * 0.41, Z0 + 0.59), K.toon(c, {"shade": 0.95, "line": 0.0}), Vector3.ZERO, 6, -1.0, false)
+			K.cyl(it, 0.043, 0.19, Vector3(fr["x0"] + 0.18 + col * 0.225, FLOOR + 0.52 + row * 0.41, fr["z1"] + 0.07), K.toon(c, {"shade": 0.95, "line": 0.0}), Vector3.ZERO, 6, -1.0, false)
 
 	# 货架
-	for i in 3:
-		_rack(it, -1.2, 2.3, -4.25 + i * 1.05, shelf, shelf_dark)
+	for r in L["racks"]:
+		_rack(it, r["x0"], r["x1"], r["z"], shelf, shelf_dark)
 
-	# 收银台
-	K.box(it, Vector3(1.1, 0.92, 0.6), Vector3(2.1, FLOOR + 0.46, -1.55), K.toon(Color("#a39d90"), {"shade": 0.85, "line": 0.0}))
-	K.box(it, Vector3(1.16, 0.06, 0.66), Vector3(2.1, FLOOR + 0.95, -1.55), K.toon(Color("#aca698"), {"shade": 0.9, "line": 0.0}))
-	K.box(it, Vector3(0.32, 0.24, 0.28), Vector3(2.35, FLOOR + 1.1, -1.6), K.toon(Color("#bcc0c6"), {"shade": 0.9, "line": 0.0}))
-	K.box(it, Vector3(0.2, 0.1, 0.02), Vector3(2.35, FLOOR + 1.15, -1.46), K.glow(Color("#9fe6c4"), 1.1))
-	K.box(it, Vector3(0.95, 0.03, 0.1), Vector3(2.05, 2.6, -1.6), K.glow(Color("#ffe9c9"), 1.7), Vector3.ZERO, false)
+	# 收银台。walkable 时沿东墙摆，整组绕 Y 转 −90°，正面朝过道；
+	# 内部坐标沿用原来的相对偏移，所以两套布局的台面细节一模一样。
+	var cspec: Dictionary = L["counter"]
+	var counter := K.group(it, "Counter", Vector3(cspec["cx"], FLOOR, cspec["cz"]), Vector3(0, cspec["rot"], 0))
+	var cw: float = cspec["w"]
+	var cd: float = cspec["d"]
+	K.box(counter, Vector3(cw, 0.92, cd), Vector3(0, 0.46, 0), K.toon(Color("#a39d90"), {"shade": 0.85, "line": 0.0}))
+	K.box(counter, Vector3(cw + 0.06, 0.06, cd + 0.06), Vector3(0, 0.95, 0), K.toon(Color("#aca698"), {"shade": 0.9, "line": 0.0}))
+	K.box(counter, Vector3(0.32, 0.24, 0.28), Vector3(0.25, 1.1, -0.05), K.toon(Color("#bcc0c6"), {"shade": 0.9, "line": 0.0}))
+	K.box(counter, Vector3(0.2, 0.1, 0.02), Vector3(0.25, 1.15, 0.09), K.glow(Color("#9fe6c4"), 1.1))
+	K.box(counter, Vector3(0.95, 0.03, 0.1), Vector3(-0.05, 2.6, -0.05), K.glow(Color("#ffe9c9"), 1.7), Vector3.ZERO, false)
+	# 服务铃（交互目标就摆在台面上，看得见才按得下去）
+	K.cyl(counter, 0.055, 0.05, Vector3(-0.22, 1.0, 0.02), K.toon(Color("#c9a24a"), {"shade": 0.55, "rim": 0.5, "line": 0.004}), Vector3.ZERO, 12)
+	K.sphere(counter, 0.045, Vector3(-0.22, 1.03, 0.02), K.toon(Color("#e6c470"), {"shade": 0.5, "rim": 0.55, "line": 0.004}), Vector3.ZERO, 12, 0.7)
 
 	# 杂志架（靠窗）
-	K.box(it, Vector3(0.45, 1.1, 1.4), Vector3(-1.25, FLOOR + 0.55, -1.95), shelf)
+	var mg: Dictionary = L["magazine"]
+	var mcx: float = (mg["x0"] + mg["x1"]) * 0.5
+	var mcz: float = (mg["z0"] + mg["z1"]) * 0.5
+	K.box(it, Vector3(mg["x1"] - mg["x0"], 1.1, mg["z1"] - mg["z0"]), Vector3(mcx, FLOOR + 0.55, mcz), shelf)
 	for r in 3:
 		var y := FLOOR + 0.4 + r * 0.32
 		for c in 8:
 			var col: Color = [Color("#d9584a"), Color("#4a9fd9"), Color("#f0d05a"), Color("#78c48e"), Color("#e8e4da")][(r + c) % 5]
-			K.box(it, Vector3(0.06, 0.2, 0.13), Vector3(-1.1, y, -2.5 + c * 0.16), K.toon(col, {"shade": 0.95, "line": 0.0}), Vector3(0, 0, 8), false)
+			K.box(it, Vector3(0.06, 0.2, 0.13), Vector3(mcx + 0.15, y, mg["z0"] + 0.15 + c * 0.16), K.toon(col, {"shade": 0.95, "line": 0.0}), Vector3(0, 0, 8), false)
 
 	# 靠窗促销堆头
-	for d in [[Vector3(-0.55, FLOOR + 0.3, -1.35), Color("#d94a3c")], [Vector3(1.75, FLOOR + 0.3, -1.4), Color("#e8c34a")]]:
-		var base: Vector3 = d[0]
+	var promo_cols := [Color("#d94a3c"), Color("#e8c34a")]
+	for i in L["promos"].size():
+		var base: Vector3 = L["promos"][i]
 		K.box(it, Vector3(0.62, 0.56, 0.42), base, K.toon(Color("#8f8778"), {"shade": 0.8, "line": 0.0}))
-		for i in 6:
-			K.box(it, Vector3(0.12, 0.16, 0.12), base + Vector3(-0.22 + (i % 3) * 0.22, 0.36 + (i / 3) * 0.18, -0.1 + (i % 2) * 0.15), K.toon(d[1], {"shade": 0.9, "line": 0.0}), Vector3.ZERO, false)
+		for j in 6:
+			K.box(it, Vector3(0.12, 0.16, 0.12), base + Vector3(-0.22 + (j % 3) * 0.22, 0.36 + (j / 3) * 0.18, -0.1 + (j % 2) * 0.15), K.toon(promo_cols[i % 2], {"shade": 0.9, "line": 0.0}), Vector3.ZERO, false)
+
+	# walkable 时东墙会空出一大片，挂两排壁架补上（只做视觉，不占过道）
+	if walkable:
+		for wz in [-4.75, -4.05]:
+			K.box(it, Vector3(0.22, 0.05, 1.15), Vector3(2.78, FLOOR + 1.25, wz), shelf)
+			K.box(it, Vector3(0.22, 0.05, 1.15), Vector3(2.78, FLOOR + 1.75, wz), shelf)
+			for k in 6:
+				var pc: Color = [Color("#e0453a"), Color("#3f7fd9"), Color("#f0c93f"), Color("#5cbf7a")][k % 4]
+				K.box(it, Vector3(0.14, 0.2, 0.16), Vector3(2.78, FLOOR + 1.38 + (k / 6) * 0.5, wz - 0.5 + k * 0.19), K.toon(pc, {"shade": 0.95, "line": 0.0}), Vector3.ZERO, false)
+
 
 	# 店内暖光
 	for p in [Vector3(0.2, 2.5, -1.9), Vector3(0.2, 2.5, -4.1), Vector3(2.0, 2.5, -3.2)]:
