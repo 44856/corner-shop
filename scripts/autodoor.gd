@@ -12,8 +12,14 @@ const K := preload("res://scripts/kit.gd")
 const Store := preload("res://scripts/store.gd")
 const Sfx := preload("res://scripts/sfx.gd")
 
-## 感应范围（米，只算水平距离）
-@export var open_radius := 2.35
+## 感应区是一个矩形，不再是以门为圆心的圆：
+##   之前半径 2.35m 会覆盖大半个店内，站在货架边、或者沿橱窗走过去都会开门。
+##   现在只认「正对门洞」这一条带：左右各 open_half_width，门外 open_depth_out、
+##   门内 open_depth_in。门外进深仍留 2.2m —— 角色步行 4.2m/s、开门 0.4s，
+##   再短就会走到门前才刚开始滑门。
+@export var open_half_width := 0.95
+@export var open_depth_out := 2.2
+@export var open_depth_in := 1.2
 ## 关门前多等一会儿，别让人刚迈进去半只脚门就合上
 @export var close_grace := 0.45
 
@@ -109,7 +115,7 @@ func _process(delta: float) -> void:
 	if bool(_player.get("input_locked")):
 		return
 
-	var near := _flat_distance() <= open_radius
+	var near := _in_sensor()
 	var blocking := _player_in_gap()
 
 	if near or blocking:
@@ -121,10 +127,12 @@ func _process(delta: float) -> void:
 			set_open(false)
 
 
-func _flat_distance() -> float:
+## d.z 以门为中心：正数是店外，负数是店内。
+func _in_sensor() -> bool:
 	var d: Vector3 = _player.global_position - global_position - DOOR_CENTER
-	d.y = 0.0
-	return d.length()
+	if absf(d.x) > open_half_width:
+		return false
+	return d.z >= -open_depth_in and d.z <= open_depth_out
 
 
 ## 人正卡在门洞里时不许关门（自动门的基本礼貌）
@@ -154,7 +162,9 @@ func set_open(v: bool, instant: bool = false) -> void:
 		for leaf in _leaves:
 			var b: AnimatableBody3D = leaf["body"]
 			var target: float = leaf["base_x"] + (leaf["slide"] if v else 0.0)
-			_tween.tween_property(b, "position:x", target, 0.55 if v else 0.75)
+			# 开门 0.4s：感应区收窄后，站在门内 0.6m 再转身出门只剩 0.14s，
+			# 0.55s 的旧速度会让门叶夹住胶囊、把人挤慢。
+			_tween.tween_property(b, "position:x", target, 0.4 if v else 0.75)
 
 	if _led != null:
 		_led.material_override = K.glow(

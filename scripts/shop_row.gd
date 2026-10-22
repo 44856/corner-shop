@@ -21,23 +21,28 @@ const S_BACK := 9.6
 
 ## 建筑体块。h 是檐口 / 女儿墙的世界高度（不含坡屋顶）。
 ## 碰撞脚本直接遍历这两张表，所以「看得见的一间店」和「挡得住的一面墙」永远同源。
+##
+## 高度基准：角色胶囊 1.72m（player_controller.gd），二层店面檐口取 5.2~6.2m，
+## 约等于「一层 2.8m + 二层 2.6m + 女儿墙」。初版普遍低 0.8~1.2m（檐口 4.0~5.4），
+## 站在街上二层窗几乎与头顶齐平，整排房子像一套微缩模型，所以统一抬高。
+## 一层门 / 雨棚 / 橱窗高度不动 —— 那些是 1.72m 的人直接对照的尺寸。
 const NORTH := [
-	{"name": "ramen", "x0": 5.6, "x1": 9.8, "h": 5.4},
-	{"name": "izakaya", "x0": 9.8, "x1": 13.0, "h": 4.7},
-	{"name": "laundry", "x0": 14.2, "x1": 18.0, "h": 4.3},
-	{"name": "tobacco", "x0": 18.0, "x1": 20.8, "h": 4.9},
+	{"name": "ramen", "x0": 5.6, "x1": 9.8, "h": 6.2},
+	{"name": "izakaya", "x0": 9.8, "x1": 13.0, "h": 5.6},
+	{"name": "laundry", "x0": 14.2, "x1": 18.0, "h": 5.2},
+	{"name": "tobacco", "x0": 18.0, "x1": 20.8, "h": 5.8},
 	{"name": "apartment", "x0": 20.8, "x1": 24.4, "h": 8.8},
-	{"name": "koban", "x0": 24.4, "x1": 26.9, "h": 4.1},
+	{"name": "koban", "x0": 24.4, "x1": 26.9, "h": 5.0},
 ]
 const SOUTH := [
-	{"name": "house_a", "x0": -5.0, "x1": -1.0, "h": 4.6},
-	{"name": "house_b", "x0": 3.2, "x1": 6.4, "h": 5.2},
-	{"name": "sento", "x0": 6.4, "x1": 10.6, "h": 5.4},
-	{"name": "apartment_s", "x0": 10.6, "x1": 14.4, "h": 7.0},
-	{"name": "coffee", "x0": 14.4, "x1": 17.6, "h": 4.0},
-	{"name": "cleaner", "x0": 17.6, "x1": 20.4, "h": 4.8},
-	{"name": "clinic", "x0": 20.4, "x1": 23.0, "h": 4.4},
-	{"name": "corner_house", "x0": 27.0, "x1": 30.0, "h": 5.6},
+	{"name": "house_a", "x0": -5.0, "x1": -1.0, "h": 5.4},
+	{"name": "house_b", "x0": 3.2, "x1": 6.4, "h": 6.0},
+	{"name": "sento", "x0": 6.4, "x1": 10.6, "h": 6.2},
+	{"name": "apartment_s", "x0": 10.6, "x1": 14.4, "h": 8.0},
+	{"name": "coffee", "x0": 14.4, "x1": 17.6, "h": 4.9},
+	{"name": "cleaner", "x0": 17.6, "x1": 20.4, "h": 5.6},
+	{"name": "clinic", "x0": 20.4, "x1": 23.0, "h": 5.2},
+	{"name": "corner_house", "x0": 27.0, "x1": 30.0, "h": 6.4},
 ]
 
 ## 雨棚：既是几何，也是雨和涟漪的覆盖区。坐标是世界 xz + 世界高度 y。
@@ -117,25 +122,25 @@ static func _ramen(g: Node3D) -> void:
 	var x0 := 5.6
 	var x1 := 9.8
 	var cx := 7.7
-	_block(g, x0, x1, 5.4, N_FRONT, N_BACK, Color("#6c5642"), Color("#8a6b4c"))
+	_block(g, x0, x1, 6.2, N_FRONT, N_BACK, Color("#6c5642"), Color("#8a6b4c"))
 	# 一楼：拉门 + 两侧木格窗，暖光从窗里漏出来
 	_entrance(g, cx, N_FRONT + 0.02, 1.4, 2.25, 1.0, Color("#4a3325"),
 		Color("#2a2119"), WARM)
 	_window(g, 6.35, 1.55, N_FRONT + 0.02, 1.1, 1.05, WARM, 0.85, 1.0)
 	_window(g, 9.05, 1.55, N_FRONT + 0.02, 1.1, 1.05, WARM, 0.85, 1.0)
 	# 二楼
-	_window(g, 6.33, 3.95, N_FRONT + 0.02, 1.3, 0.95, WARM, 0.5, 1.0)
-	_window(g, 9.07, 3.95, N_FRONT + 0.02, 1.3, 0.95, WARM, 0.45, 1.0)
+	_window(g, 6.33, 4.60, N_FRONT + 0.02, 1.3, 1.05, WARM, 0.5, 1.0)
+	_window(g, 9.07, 4.60, N_FRONT + 0.02, 1.3, 1.05, WARM, 0.45, 1.0)
 	_awning(g, AWNINGS[0])
 	_noren(g, cx, 2.06, -0.52, 1.65, 0.62, Color("#b8442f"), "ラーメン", 1.0)
 	_lit_sign(g, "麺処 星見", Vector3(cx, 3.42, N_FRONT - 0.01), 3.1, 0.6,
 		Color("#f2e4c4"), Color("#5a2a1c"), 1.0, 1.0)
-	_vert_sign(g, "ラーメン", 9.56, 5.15, N_FRONT - 0.02, 1.95, 0.4,
+	_vert_sign(g, "ラーメン", 9.56, 5.85, N_FRONT - 0.02, 2.3, 0.4,
 		Color("#8f2f27"), Color("#ffe8c4"), 1.0, 0.8)
 	_warm_light(g, Vector3(cx, 2.5, -0.42), Color("#ffcf96"), 1.05, 4.6)
 	_menu_board(g, 5.95, 0.34, -16.0, "らーめん\n¥780")
 	_pot(g, 9.46, 0.18, 0.9)
-	_ac(g, 9.15, 4.6, N_FRONT + 0.16, 1.0)
+	_ac(g, 9.15, 5.35, N_FRONT + 0.16, 1.0)
 	# 门前的暖光池，和便利店雨棚下的那一块接上
 	K.plane(g, Vector2(3.9, 1.6), Vector3(cx, BASE + 0.006, 0.25),
 		K.wet(Color("#ffcf9a"), 0.09), Vector3.ZERO, false)
@@ -145,24 +150,24 @@ static func _izakaya(g: Node3D) -> void:
 	var x0 := 9.8
 	var x1 := 13.0
 	var cx := 11.4
-	_block(g, x0, x1, 4.7, N_FRONT, N_BACK, Color("#5b3f2d"), Color("#74513a"))
+	_block(g, x0, x1, 5.6, N_FRONT, N_BACK, Color("#5b3f2d"), Color("#74513a"))
 	_entrance(g, cx, N_FRONT + 0.02, 1.15, 2.2, 1.0, Color("#3b2a1e"),
 		Color("#241b14"), WARM)
 	_window(g, 10.35, 1.62, N_FRONT + 0.02, 0.9, 0.9, WARM, 0.9, 1.0)
 	_window(g, 12.45, 1.62, N_FRONT + 0.02, 0.9, 0.9, WARM, 0.9, 1.0)
-	_window(g, 10.55, 3.55, N_FRONT + 0.02, 0.9, 0.7, WARM, 0.35, 1.0)
-	_window(g, 12.25, 3.55, N_FRONT + 0.02, 0.9, 0.7, WARM, 0.35, 1.0)
+	_window(g, 10.55, 4.25, N_FRONT + 0.02, 0.9, 0.8, WARM, 0.35, 1.0)
+	_window(g, 12.25, 4.25, N_FRONT + 0.02, 0.9, 0.8, WARM, 0.35, 1.0)
 	_awning(g, AWNINGS[1])
 	_noren(g, cx, 2.0, -0.55, 1.35, 0.6, Color("#2f3f5a"), "酒処", 1.0)
 	_lantern(g, Vector3(10.18, 2.24, -0.5), Color("#d8462f"), "酒")
 	_lantern(g, Vector3(12.62, 2.24, -0.5), Color("#d8462f"), "酒")
 	_lit_sign(g, "居酒屋 ほし", Vector3(cx, 3.18, N_FRONT - 0.01), 2.5, 0.52,
 		Color("#f0e4c8"), Color("#4a2318"), 1.0, 0.85)
-	_vert_sign(g, "居酒屋", 12.76, 4.5, N_FRONT - 0.02, 1.6, 0.38,
+	_vert_sign(g, "居酒屋", 12.76, 5.2, N_FRONT - 0.02, 1.7, 0.38,
 		Color("#6b2a22"), Color("#ffe4b8"), 1.0, 0.7)
 	_warm_light(g, Vector3(cx, 2.4, -0.4), Color("#ffc17e"), 0.8, 4.2)
 	_menu_board(g, 12.05, 0.32, 12.0, "本日のおすすめ\n焼き鳥  ¥180")
-	_ac(g, 10.25, 3.9, N_FRONT + 0.16, 1.0)
+	_ac(g, 10.25, 4.7, N_FRONT + 0.16, 1.0)
 
 
 static func _gap(g: Node3D) -> void:
@@ -208,7 +213,7 @@ static func _laundry(g: Node3D) -> void:
 	var x0 := 14.2
 	var x1 := 18.0
 	var cx := 16.1
-	_block(g, x0, x1, 4.3, N_FRONT, N_BACK, Color("#8d918f"), Color("#b8bcb8"))
+	_block(g, x0, x1, 5.2, N_FRONT, N_BACK, Color("#8d918f"), Color("#b8bcb8"))
 	# 整面落地玻璃：这条街最亮的一块冷光
 	var glass := K.glass(Color(0.72, 0.88, 0.95, 0.1), 0.3)
 	K.box(g, Vector3(2.9, 1.75, 0.06), Vector3(cx, BASE + 1.35, N_FRONT + 0.03), glass,
@@ -237,10 +242,13 @@ static func _laundry(g: Node3D) -> void:
 		K.box(g, Vector3(0.3, 0.06, 0.02), Vector3(px, BASE + 1.2, N_FRONT + 0.1),
 			K.glow(Color("#7fe0ff"), 0.7), Vector3.ZERO, false)
 
+	# 二层原本整面留白，抬高层高后会变成一整块灰墙；补两扇冷光小窗压住体量
+	_window(g, 15.25, 4.15, N_FRONT + 0.02, 1.0, 0.9, COOL, 0.3, 1.0)
+	_window(g, 16.95, 4.15, N_FRONT + 0.02, 1.0, 0.9, COOL, 0.25, 1.0)
 	_awning(g, AWNINGS[2])
 	_lit_sign(g, "コインランドリー", Vector3(cx, 3.28, N_FRONT - 0.01), 3.2, 0.55,
 		Color("#eaf6ff"), Color("#1e4f6e"), 1.0, 1.35)
-	_vert_sign(g, "24H", 17.68, 4.15, N_FRONT - 0.02, 1.2, 0.36,
+	_vert_sign(g, "24H", 17.68, 4.95, N_FRONT - 0.02, 1.2, 0.36,
 		Color("#eaf6ff"), Color("#1e4f6e"), 1.0, 1.2)
 	_warm_light(g, Vector3(cx, 2.5, -0.4), Color("#cfeaff"), 1.15, 5.0)
 	K.plane(g, Vector2(4.4, 1.9), Vector3(cx, BASE + 0.006, 0.35),
@@ -257,19 +265,19 @@ static func _tobacco(g: Node3D) -> void:
 	var x0 := 18.0
 	var x1 := 20.8
 	var cx := 19.4
-	_block(g, x0, x1, 4.9, N_FRONT, N_BACK, Color("#6a5c46"), Color("#8f7d60"))
+	_block(g, x0, x1, 5.8, N_FRONT, N_BACK, Color("#6a5c46"), Color("#8f7d60"))
 	_shutter(g, 18.95, N_FRONT + 0.02, 1.7, 2.25, 1.0, Color("#59616a"))
 	_window(g, 20.1, 1.55, N_FRONT + 0.02, 0.85, 1.0, WARM, 1.0, 1.0)
-	_window(g, 18.6, 3.65, N_FRONT + 0.02, 1.1, 0.8, WARM, 0.3, 1.0)
-	_window(g, 20.0, 3.65, N_FRONT + 0.02, 1.1, 0.8, WARM, 0.3, 1.0)
+	_window(g, 18.6, 4.40, N_FRONT + 0.02, 1.1, 0.9, WARM, 0.3, 1.0)
+	_window(g, 20.0, 4.40, N_FRONT + 0.02, 1.1, 0.9, WARM, 0.3, 1.0)
 	_awning(g, AWNINGS[3])
 	_lit_sign(g, "たばこ", Vector3(cx, 3.25, N_FRONT - 0.01), 2.2, 0.58,
 		Color("#f1e6cd"), Color("#a12b22"), 1.0, 1.0)
-	_vert_sign(g, "煙草", 20.62, 4.65, N_FRONT - 0.02, 1.5, 0.4,
+	_vert_sign(g, "煙草", 20.62, 5.45, N_FRONT - 0.02, 1.6, 0.4,
 		Color("#f1e6cd"), Color("#a12b22"), 1.0, 0.9)
 	_warm_light(g, Vector3(cx, 2.45, -0.38), Color("#ffcf96"), 0.65, 3.8)
 	_pot(g, 18.22, 0.16, 1.0)
-	_ac(g, 20.55, 3.95, N_FRONT + 0.16, 1.0)
+	_ac(g, 20.55, 4.70, N_FRONT + 0.16, 1.0)
 
 
 static func _apartment(g: Node3D) -> void:
@@ -327,7 +335,7 @@ static func _koban(g: Node3D) -> void:
 	var x0 := 24.4
 	var x1 := 26.9
 	var cx := 25.65
-	_block(g, x0, x1, 4.1, N_FRONT, N_BACK, Color("#b9b2a0"), Color("#d8d1bd"))
+	_block(g, x0, x1, 5.0, N_FRONT, N_BACK, Color("#b9b2a0"), Color("#d8d1bd"))
 	_entrance(g, 25.55, N_FRONT + 0.02, 1.15, 2.2, 1.0, Color("#b9c9cc"),
 		Color("#454c52"), COOL)
 	_window(g, 24.95, 1.6, N_FRONT + 0.02, 0.9, 1.0, COOL, 1.1, 1.0)
@@ -335,18 +343,18 @@ static func _koban(g: Node3D) -> void:
 	_awning(g, AWNINGS[4])
 	_lit_sign(g, "交番", Vector3(cx, 3.2, N_FRONT - 0.01), 1.7, 0.52,
 		Color("#f2ede0"), Color("#1d3d6b"), 1.0, 0.85)
-	_vert_sign(g, "交番", 26.67, 4.0, N_FRONT - 0.02, 1.0, 0.34,
+	_vert_sign(g, "交番", 26.67, 4.85, N_FRONT - 0.02, 1.1, 0.34,
 		Color("#f2ede0"), Color("#1d3d6b"), 1.0, 0.8)
 	# 青灯：交番的标志。灯本身不大，靠 soft 晕开一圈。
-	K.sphere(g, 0.11, Vector3(25.55, 3.93, -0.62), K.glow(Color("#7fb4ff"), 2.6),
+	K.sphere(g, 0.11, Vector3(25.55, 4.55, -0.62), K.glow(Color("#7fb4ff"), 2.6),
 		Vector3.ZERO, 12, 1.0, false)
-	K.sphere(g, 0.42, Vector3(25.55, 3.93, -0.62), K.soft(Color("#6fa8ff"), 0.45, 1.8),
+	K.sphere(g, 0.42, Vector3(25.55, 4.55, -0.62), K.soft(Color("#6fa8ff"), 0.45, 1.8),
 		Vector3.ZERO, 12, 1.0, false)
 	var bl := OmniLight3D.new()
 	bl.light_color = Color("#7fb4ff")
 	bl.light_energy = 0.7
 	bl.omni_range = 4.0
-	bl.position = Vector3(25.55, 3.8, -0.35)
+	bl.position = Vector3(25.55, 4.4, -0.35)
 	g.add_child(bl)
 	_warm_light(g, Vector3(cx, 2.35, -0.35), Color("#dff0ff"), 0.8, 4.2)
 	_menu_board(g, 24.62, 0.32, -8.0, "落とし物\n相談窓口")
@@ -371,10 +379,10 @@ static func _house_a(g: Node3D) -> void:
 	var x0 := -5.0
 	var x1 := -1.0
 	var cx := -3.0
-	_block(g, x0, x1, 4.6, S_FRONT, S_BACK, Color("#8a7a68"), Color("#a08d78"))
-	_gable(g, cx, S_FRONT, S_BACK, x1 - x0, 4.6, 1.2, Color("#34383f"))
+	_block(g, x0, x1, 5.4, S_FRONT, S_BACK, Color("#8a7a68"), Color("#a08d78"))
+	_gable(g, cx, S_FRONT, S_BACK, x1 - x0, 5.4, 1.2, Color("#34383f"))
 	_window(g, -3.45, 1.55, S_FRONT - 0.02, 1.0, 1.0, WARM, 0.75, -1.0)
-	_window(g, -3.25, 3.45, S_FRONT - 0.02, 1.15, 0.85, WARM, 0.4, -1.0)
+	_window(g, -3.25, 4.15, S_FRONT - 0.02, 1.15, 1.0, WARM, 0.4, -1.0)
 	_entrance(g, -2.15, S_FRONT - 0.02, 0.9, 2.1, -1.0, Color("#5a4030"),
 		Color("#2e251d"), WARM)
 	# 门廊灯
@@ -425,24 +433,24 @@ static func _house_b(g: Node3D) -> void:
 	var x0 := 3.2
 	var x1 := 6.4
 	var cx := 4.8
-	_block(g, x0, x1, 5.2, S_FRONT, S_BACK, Color("#7e6a58"), Color("#9a8068"))
+	_block(g, x0, x1, 6.0, S_FRONT, S_BACK, Color("#7e6a58"), Color("#9a8068"))
 	# 二层小阳台
-	K.box(g, Vector3(2.1, 0.1, 0.55), Vector3(4.65, 3.2, S_FRONT - 0.27),
+	K.box(g, Vector3(2.1, 0.1, 0.55), Vector3(4.65, 3.85, S_FRONT - 0.27),
 		K.toon(Color("#8d9196"), {"shade": 0.6, "rim": 0.2, "line": 0.005}))
 	var rail := K.toon(Color("#5b626a"), {"shade": 0.6, "line": 0.004})
-	K.strut(g, Vector3(3.65, 4.05, S_FRONT - 0.52), Vector3(5.65, 4.05, S_FRONT - 0.52),
+	K.strut(g, Vector3(3.65, 4.70, S_FRONT - 0.52), Vector3(5.65, 4.70, S_FRONT - 0.52),
 		0.022, rail, 6, false)
 	var px := 3.7
 	while px < 5.7:
-		K.box(g, Vector3(0.02, 0.85, 0.02), Vector3(px, 3.62, S_FRONT - 0.52), rail,
+		K.box(g, Vector3(0.02, 0.85, 0.02), Vector3(px, 4.27, S_FRONT - 0.52), rail,
 			Vector3.ZERO, false)
 		px += 0.36
 	_window(g, 4.05, 1.6, S_FRONT - 0.02, 0.9, 1.0, WARM, 0.7, -1.0)
 	_window(g, 5.55, 1.6, S_FRONT - 0.02, 0.9, 1.0, WARM, 0.55, -1.0)
-	_window(g, 4.65, 4.15, S_FRONT - 0.02, 1.7, 0.9, WARM, 0.4, -1.0)
+	_window(g, 4.65, 4.90, S_FRONT - 0.02, 1.7, 1.0, WARM, 0.4, -1.0)
 	_entrance(g, 5.95, S_FRONT - 0.02, 0.8, 2.05, -1.0, Color("#4a3b2c"),
 		Color("#2b241d"), WARM)
-	_ac(g, 3.55, 3.95, S_FRONT - 0.15, -1.0)
+	_ac(g, 3.55, 4.75, S_FRONT - 0.15, -1.0)
 	_pot(g, 3.4, S_FRONT - 0.28, 1.1)
 	_warm_light(g, Vector3(5.95, 2.1, S_FRONT - 0.45), Color("#ffcf96"), 0.45, 3.0)
 
@@ -451,29 +459,32 @@ static func _sento(g: Node3D) -> void:
 	var x0 := 6.4
 	var x1 := 10.6
 	var cx := 8.5
-	_block(g, x0, x1, 5.4, S_FRONT, S_BACK, Color("#8e8478"), Color("#a89d8e"))
-	_gable(g, cx, S_FRONT, S_BACK, x1 - x0, 5.4, 1.4, Color("#2f343c"))
+	_block(g, x0, x1, 6.2, S_FRONT, S_BACK, Color("#8e8478"), Color("#a89d8e"))
+	_gable(g, cx, S_FRONT, S_BACK, x1 - x0, 6.2, 1.4, Color("#2f343c"))
 	# 入口：木门 + 暖帘
 	_entrance(g, cx, S_FRONT - 0.02, 1.5, 2.4, -1.0, Color("#4f3826"),
 		Color("#33251a"), WARM)
 	_noren(g, cx, 2.15, S_FRONT - 0.12, 1.5, 0.66, Color("#2f3f5a"), "ゆ", -1.0)
 	_window(g, 7.25, 1.72, S_FRONT - 0.02, 0.85, 0.8, WARM, 0.5, -1.0)
 	_window(g, 9.75, 1.72, S_FRONT - 0.02, 0.85, 0.8, WARM, 0.5, -1.0)
+	# 浴室高窗：钱汤二层不需要房间，但整面墙空着会显得屋顶飘着
+	_window(g, 7.30, 4.60, S_FRONT - 0.02, 0.9, 0.7, WARM, 0.3, -1.0)
+	_window(g, 9.70, 4.60, S_FRONT - 0.02, 0.9, 0.7, WARM, 0.3, -1.0)
 	_awning(g, AWNINGS[6])
 	_lit_sign(g, "星見湯", Vector3(cx, 3.48, S_FRONT - 0.01), 2.1, 0.54,
 		Color("#f3e6c8"), Color("#3a2a1c"), -1.0, 0.85)
-	_vert_sign(g, "銭湯", 6.62, 4.7, S_FRONT - 0.02, 1.4, 0.4,
+	_vert_sign(g, "銭湯", 6.62, 5.40, S_FRONT - 0.02, 1.55, 0.4,
 		Color("#f3e6c8"), Color("#3a2a1c"), -1.0, 0.7)
-	# 烟囱
+	# 烟囱：必须始终高出屋脊（墙顶 6.2 + 屋顶 1.4 = 7.6）
 	var brick := K.toon(Color("#5a4a42"), {"shade": 0.5, "rim": 0.2, "line": 0.006})
-	K.cyl(g, 0.34, 7.4, Vector3(10.12, BASE + 3.7, 8.55), brick, Vector3.ZERO, 12)
-	for y in [3.2, 5.2, 7.2]:
+	K.cyl(g, 0.34, 8.6, Vector3(10.12, BASE + 4.3, 8.55), brick, Vector3.ZERO, 12)
+	for y in [3.6, 5.8, 8.0]:
 		K.cyl(g, 0.38, 0.12, Vector3(10.12, BASE + y, 8.55),
 			K.toon(Color("#463a34"), {"line": 0.004}), Vector3.ZERO, 12)
 	# 烟囱口的热气：三团soft，静态即可，比粒子便宜
-	K.sphere(g, 0.45, Vector3(10.12, 9.2, 8.55), K.soft(Color("#dce8f2"), 0.1, 1.5),
+	K.sphere(g, 0.45, Vector3(10.12, 9.9, 8.55), K.soft(Color("#dce8f2"), 0.1, 1.5),
 		Vector3.ZERO, 12, 0.9, false)
-	K.sphere(g, 0.62, Vector3(10.0, 9.8, 8.4), K.soft(Color("#dce8f2"), 0.07, 1.5),
+	K.sphere(g, 0.62, Vector3(10.0, 10.5, 8.4), K.soft(Color("#dce8f2"), 0.07, 1.5),
 		Vector3.ZERO, 12, 0.9, false)
 	_warm_light(g, Vector3(cx, 2.25, S_FRONT - 0.45), Color("#ffcf96"), 0.8, 4.5)
 	# 门口的长椅和木桶
@@ -487,9 +498,10 @@ static func _apartment_s(g: Node3D) -> void:
 	var x0 := 10.6
 	var x1 := 14.4
 	var cx := 12.5
-	_block(g, x0, x1, 7.0, S_FRONT, S_BACK, Color("#6e747c"), Color("#8b929b"))
+	_block(g, x0, x1, 8.0, S_FRONT, S_BACK, Color("#6e747c"), Color("#8b929b"))
+	# 三层按 2.45m 层高排：初版 2.0m 一层，三层公寓只有 7m，窗台挤在一起
 	for i in 3:
-		var y := 1.65 + i * 2.0
+		var y := 1.70 + i * 2.45
 		for px in [11.25, 12.45, 13.65]:
 			_window(g, px, y, S_FRONT - 0.02, 0.82, 0.85, WARM if (i + int(px)) % 2 == 0 else COOL,
 				0.55 if i < 2 else 0.35, -1.0)
@@ -505,15 +517,15 @@ static func _apartment_s(g: Node3D) -> void:
 	_lit_sign(g, "メゾン星見", Vector3(12.0, 2.72, S_FRONT - 0.01), 1.6, 0.3,
 		Color("#e4e0d4"), Color("#3a3e44"), -1.0, 0.4)
 	_warm_light(g, Vector3(13.6, 2.0, S_FRONT - 0.4), Color("#ffcf96"), 0.4, 2.8)
-	_ac(g, 11.1, 4.3, S_FRONT - 0.15, -1.0)
-	_ac(g, 14.05, 6.2, S_FRONT - 0.15, -1.0)
+	_ac(g, 11.1, 4.95, S_FRONT - 0.15, -1.0)
+	_ac(g, 14.05, 7.35, S_FRONT - 0.15, -1.0)
 
 
 static func _coffee(g: Node3D) -> void:
 	var x0 := 14.4
 	var x1 := 17.6
 	var cx := 16.0
-	_block(g, x0, x1, 4.0, S_FRONT, S_BACK, Color("#6e4e3a"), Color("#8a6549"))
+	_block(g, x0, x1, 4.9, S_FRONT, S_BACK, Color("#6e4e3a"), Color("#8a6549"))
 	# 大玻璃窗，室内暖光
 	_window(g, 15.55, 1.55, S_FRONT - 0.02, 1.75, 1.35, WARM, 1.15, -1.0)
 	_entrance(g, 17.05, S_FRONT - 0.02, 0.85, 2.05, -1.0, Color("#4a3424"),
@@ -525,7 +537,9 @@ static func _coffee(g: Node3D) -> void:
 	_awning(g, AWNINGS[5])
 	_lit_sign(g, "喫茶 星屑", Vector3(cx, 3.05, S_FRONT - 0.01), 2.35, 0.5,
 		Color("#f3e3c3"), Color("#4a2a1a"), -1.0, 1.05)
-	_vert_sign(g, "COFFEE", 14.62, 3.85, S_FRONT - 0.02, 1.15, 0.34,
+	# 招牌上方补一扇二层窗，让加高后的檐口有落点
+	_window(g, 15.55, 4.10, S_FRONT - 0.02, 1.2, 0.8, WARM, 0.4, -1.0)
+	_vert_sign(g, "COFFEE", 14.62, 4.45, S_FRONT - 0.02, 1.25, 0.34,
 		Color("#f3e3c3"), Color("#4a2a1a"), -1.0, 0.7)
 	_warm_light(g, Vector3(cx, 2.35, S_FRONT - 0.4), Color("#ffcf96"), 0.9, 4.2)
 	# 门外的一张小桌
@@ -542,11 +556,11 @@ static func _cleaner(g: Node3D) -> void:
 	var x0 := 17.6
 	var x1 := 20.4
 	var cx := 19.0
-	_block(g, x0, x1, 4.8, S_FRONT, S_BACK, Color("#7e8288"), Color("#9a9ea4"))
+	_block(g, x0, x1, 5.6, S_FRONT, S_BACK, Color("#7e8288"), Color("#9a9ea4"))
 	_shutter(g, 19.0, S_FRONT - 0.02, 1.8, 2.3, -1.0, Color("#5d6670"))
 	_window(g, 20.05, 1.55, S_FRONT - 0.02, 0.72, 0.95, COOL, 0.7, -1.0)
-	_window(g, 18.3, 3.6, S_FRONT - 0.02, 1.0, 0.75, WARM, 0.25, -1.0)
-	_vert_sign(g, "クリーニング", 17.82, 4.6, S_FRONT - 0.02, 2.3, 0.42,
+	_window(g, 18.3, 4.30, S_FRONT - 0.02, 1.0, 0.9, WARM, 0.25, -1.0)
+	_vert_sign(g, "クリーニング", 17.82, 5.35, S_FRONT - 0.02, 2.3, 0.42,
 		Color("#e7eef2"), Color("#2b5a7a"), -1.0, 1.0)
 	# 小霓虹灯条
 	K.box(g, Vector3(0.05, 1.2, 0.02), Vector3(18.05, 3.3, S_FRONT - 0.08),
@@ -559,7 +573,7 @@ static func _clinic(g: Node3D) -> void:
 	var x0 := 20.4
 	var x1 := 23.0
 	var cx := 21.7
-	_block(g, x0, x1, 4.4, S_FRONT, S_BACK, Color("#a8a294"), Color("#c4bead"))
+	_block(g, x0, x1, 5.2, S_FRONT, S_BACK, Color("#a8a294"), Color("#c4bead"))
 	_entrance(g, 21.7, S_FRONT - 0.02, 1.1, 2.15, -1.0, Color("#c9d4d2"),
 		Color("#4a5254"), COOL)
 	_window(g, 20.95, 1.55, S_FRONT - 0.02, 0.85, 1.0, COOL, 0.9, -1.0)
@@ -567,9 +581,9 @@ static func _clinic(g: Node3D) -> void:
 	_lit_sign(g, "星見クリニック", Vector3(cx, 2.85, S_FRONT - 0.01), 2.0, 0.42,
 		Color("#eef4ea"), Color("#2c5a44"), -1.0, 0.8)
 	# 绿十字
-	K.box(g, Vector3(0.72, 0.2, 0.06), Vector3(cx, 3.65, S_FRONT - 0.06),
+	K.box(g, Vector3(0.72, 0.2, 0.06), Vector3(cx, 4.35, S_FRONT - 0.06),
 		K.glow(Color("#6fe39a"), 1.8), Vector3.ZERO, false)
-	K.box(g, Vector3(0.2, 0.72, 0.06), Vector3(cx, 3.65, S_FRONT - 0.06),
+	K.box(g, Vector3(0.2, 0.72, 0.06), Vector3(cx, 4.35, S_FRONT - 0.06),
 		K.glow(Color("#6fe39a"), 1.8), Vector3.ZERO, false)
 	_warm_light(g, Vector3(cx, 2.25, S_FRONT - 0.4), Color("#dff0ff"), 0.6, 3.5)
 
@@ -614,11 +628,11 @@ static func _corner_house(g: Node3D) -> void:
 	var x1 := 30.0
 	var cx := 28.5
 	# 房子退到院子里，前面留矮墙和绿篱
-	_block(g, x0, x1, 5.6, 7.3, S_BACK, Color("#665c50"), Color("#827463"))
-	_gable(g, cx, 7.3, S_BACK, x1 - x0, 5.6, 1.3, Color("#2f343b"))
+	_block(g, x0, x1, 6.4, 7.3, S_BACK, Color("#665c50"), Color("#827463"))
+	_gable(g, cx, 7.3, S_BACK, x1 - x0, 6.4, 1.3, Color("#2f343b"))
 	_window(g, 27.95, 1.7, 7.3 - 0.02, 0.9, 1.0, WARM, 0.7, -1.0)
 	_window(g, 29.15, 1.7, 7.3 - 0.02, 0.9, 1.0, WARM, 0.45, -1.0)
-	_window(g, 28.5, 4.1, 7.3 - 0.02, 1.3, 0.8, WARM, 0.3, -1.0)
+	_window(g, 28.5, 4.80, 7.3 - 0.02, 1.3, 0.95, WARM, 0.3, -1.0)
 	var wall := K.toon(Color("#63666c"), {"shade": 0.5, "rim": 0.2, "line": 0.007})
 	K.box(g, Vector3(3.0, 1.2, 0.26), Vector3(cx, BASE + 0.6, S_FRONT), wall)
 	K.box(g, Vector3(3.1, 0.09, 0.32), Vector3(cx, BASE + 1.24, S_FRONT),
