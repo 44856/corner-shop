@@ -45,6 +45,10 @@ const BEAM_PITCH := -6.0
 const POOL_CENTER_X := 4.00
 const POOL_HALF := Vector2(2.40, 1.50)
 
+## 台面裁剪盒。默认是 11.2m 微缩底座；加油站是 30 × 18m 的完整场景，
+## 必须换成覆盖整个场地的盒子，否则车一开出中心 5.6m 就会被整块 discard。
+var clip_box := K.PLATFORM_CLIP
+
 var _wheels: Array = []
 ## Label3D 走不了裁剪着色器（它自带字体材质），只能按台面范围开关可见性。
 ## 不处理的话，车还在台面外时，车身上的字会孤零零飘在底座外面。
@@ -67,7 +71,7 @@ func _ready() -> void:
 
 func _process(_delta: float) -> void:
 	for l in _labels:
-		l.visible = K.PLATFORM_CLIP.has_point((l as Label3D).global_position)
+		l.visible = clip_box.has_point((l as Label3D).global_position)
 
 
 ## 车身文字：记下来，_process 里按台面范围开关
@@ -82,7 +86,7 @@ func _text(text: String, pos: Vector3, height: float, color: Color,
 
 func _mat(key: String, color: Color, p: Dictionary) -> ShaderMaterial:
 	if not _mats.has(key):
-		_mats[key] = K.toon_clipped(color, p)
+		_mats[key] = K.toon_clipped(color, p, clip_box)
 	return _mats[key]
 
 
@@ -129,32 +133,32 @@ func _plate() -> ShaderMaterial:
 
 func _lens() -> ShaderMaterial:
 	if not _mats.has("lens"):
-		_mats["lens"] = K.glow_clipped(Color("#ffe9c4"), 4.0)
+		_mats["lens"] = K.glow_clipped(Color("#ffe9c4"), 4.0, 0.0, clip_box)
 	return _mats["lens"]
 
 
 func _amber() -> ShaderMaterial:
 	if not _mats.has("amber"):
-		_mats["amber"] = K.glow_clipped(Color("#ffab3d"), 2.4)
+		_mats["amber"] = K.glow_clipped(Color("#ffab3d"), 2.4, 0.0, clip_box)
 	return _mats["amber"]
 
 
 func _reverse() -> ShaderMaterial:
 	if not _mats.has("reverse"):
-		_mats["reverse"] = K.glow_clipped(Color("#cfe2ff"), 0.7)
+		_mats["reverse"] = K.glow_clipped(Color("#cfe2ff"), 0.7, 0.0, clip_box)
 	return _mats["reverse"]
 
 
 ## 雾灯：比大灯暗一档，不然车头会亮成四只眼睛
 func _fog_lens() -> ShaderMaterial:
 	if not _mats.has("fog"):
-		_mats["fog"] = K.glow_clipped(Color("#ffe0b0"), 1.7)
+		_mats["fog"] = K.glow_clipped(Color("#ffe0b0"), 1.7, 0.0, clip_box)
 	return _mats["fog"]
 
 
 func _tail_lens() -> ShaderMaterial:
 	if _tail_mat == null:
-		_tail_mat = K.glow_clipped(Color("#ff4a32"), 2.2)
+		_tail_mat = K.glow_clipped(Color("#ff4a32"), 2.2, 0.0, clip_box)
 	return _tail_mat
 
 
@@ -359,7 +363,7 @@ func _build_lights() -> void:
 	for z in [-LAMP_Z, LAMP_Z]:
 		# 灯头光晕：一盏柔光球，让灯面在雨雾里「发糊」
 		K.sphere(self, 0.22, Vector3(CAB_X1 + 0.10, LAMP_Y, z),
-			K.soft_clipped(Color("#ffd7a0"), 0.40, 1.6), Vector3.ZERO, 12, 0.9, false)
+			K.soft_clipped(Color("#ffd7a0"), 0.40, 1.6, clip_box), Vector3.ZERO, 12, 0.9, false)
 
 		var sl := SpotLight3D.new()
 		sl.position = Vector3(CAB_X1 + 0.12, LAMP_Y, z)
@@ -409,7 +413,7 @@ func _beam() -> ShaderMaterial:
 			"length": BEAM_LEN,
 			"radial_power": 2.0,
 			"end_fade": 0.5,
-		})
+		}, clip_box)
 	return _beam_mat
 
 
@@ -420,7 +424,7 @@ func _pool() -> ShaderMaterial:
 			"strength": 0.24,
 			"pool": true,
 			"pool_half": POOL_HALF,
-		})
+		}, clip_box)
 	return _pool_mat
 
 

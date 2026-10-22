@@ -31,9 +31,12 @@ func bind(player: Node3D, hud: CanvasLayer) -> void:
 
 
 ## gate 是可选条件（比如「必须站在店里」），返回 false 时这个点不参与提示。
+## priority 让剧情目标压过附近的日常交互：同为 0 时仍然只比距离，
+## 旧调用点的行为完全不变。收音机只有一次机会，被售货机抢走焦点就等于没听见。
 func add_target(pos: Vector3, radius: float, text: String, cb: Callable,
-		gate: Callable = Callable()) -> void:
-	_targets.append({"pos": pos, "radius": radius, "text": text, "cb": cb, "gate": gate})
+		gate: Callable = Callable(), priority: int = 0) -> void:
+	_targets.append({"pos": pos, "radius": radius, "text": text, "cb": cb,
+		"gate": gate, "priority": priority})
 
 
 # ---------------------------------------------------------------- 对外查询
@@ -77,6 +80,7 @@ func _process(_delta: float) -> void:
 	var p: Vector3 = _player.global_position
 	var best: Dictionary = {}
 	var best_d := INF
+	var best_priority := -1
 	for t in _targets:
 		var gate: Callable = t.get("gate", Callable())
 		if gate.is_valid() and not bool(gate.call()):
@@ -85,7 +89,10 @@ func _process(_delta: float) -> void:
 		var d := pos - p
 		d.y = 0.0
 		var dist := d.length()
-		if dist > float(t["radius"]) or dist >= best_d:
+		var priority := int(t.get("priority", 0))
+		if dist > float(t["radius"]):
+			continue
+		if priority < best_priority or (priority == best_priority and dist >= best_d):
 			continue
 		# 距离够了还得「看得见」。只按水平距离算的话，站在后巷贴着空调外机
 		# 就能隔着东墙按到店里的服务铃 —— 那不是够得着，是穿墙。
@@ -93,6 +100,7 @@ func _process(_delta: float) -> void:
 			continue
 		best = t
 		best_d = dist
+		best_priority = priority
 
 	if best.is_empty():
 		_clear_focus()

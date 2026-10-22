@@ -468,6 +468,28 @@ func _play_wake_up() -> void:
 
 func _on_wake_finished() -> void:
 	player.input_locked = false
+	# 从加油站「死」过来的那一趟，第一小时不接任务、不解释设定，
+	# 只按感官顺序认识这具身体和新世界。正常从商店街进草原则不触发。
+	if get_tree().root.has_meta("from_gas_station_story"):
+		get_tree().root.remove_meta("from_gas_station_story")
+		_story_arrival_echo()
+
+
+## 嗅觉 → 听觉 → 痛觉 → 视觉，最后才是语言。
+## 每一条都留 4 秒多的空白，让玩家自己把「这不是原来的身体」拼出来，
+## 而不是由旁白告诉他。最后一句是别人看见他的方式：不是欢迎，是一句侧写。
+func _story_arrival_echo() -> void:
+	await get_tree().create_timer(1.2).timeout
+	hud.toast("先闻到草。湿土、太阳晒过的草梗，还有一点铁锈味。", 4.4)
+	await get_tree().create_timer(4.8).timeout
+	hud.toast("然后是声音。风、远处的钟、有人在笑。", 4.2)
+	await get_tree().create_timer(4.6).timeout
+	hud.toast("最后才是疼。肩膀、肋侧，像被从很高的地方放下来。", 4.2)
+	await get_tree().create_timer(4.6).timeout
+	hud.toast("你低头看自己的手。手指比你记得的长。有人对你说话，词句先是一串噪声，"
+		+ "然后忽然拼成意思。", 5.2)
+	await get_tree().create_timer(5.4).timeout
+	hud.toast("一个路过的人看了你一眼，没有停下：'你偶尔用看怪物的眼神看熟悉的东西。'", 5.6)
 
 
 # ---------------------------------------------------------------- 狗

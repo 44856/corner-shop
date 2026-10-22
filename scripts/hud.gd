@@ -36,6 +36,7 @@ var accent_color := ACCENT
 var _prompt_panel: PanelContainer
 var _prompt_key: Label
 var _prompt_text: Label
+var _subtitle_label: Label
 var _toast: Label
 var _zone_chip: Label
 var _fade: ColorRect
@@ -119,7 +120,8 @@ func _build_title(root: Control) -> void:
 	texts.add_theme_constant_override("separation", 1)
 	row.add_child(texts)
 	texts.add_child(_label(title_text, 24, TEXT))
-	texts.add_child(_label(subtitle_text, 13, MUTED))
+	_subtitle_label = _label(subtitle_text, 13, MUTED)
+	texts.add_child(_subtitle_label)
 
 
 func _build_zone(root: Control) -> void:
@@ -291,6 +293,13 @@ func hide_toast() -> void:
 func set_zone(text: String, accent: bool = false) -> void:
 	_zone_chip.text = text
 	_zone_chip.add_theme_color_override("font_color", accent_color if accent else MUTED)
+
+
+## 标题卡副标题。加油站用它在「雨夜 00:06」和「逢魔时 18:42」之间切换。
+func set_subtitle(text: String) -> void:
+	if _subtitle_label == null:
+		return
+	_subtitle_label.text = text
 
 
 ## 全屏闪一下。和 fade 分开：fade 是黑场（剧情用），flash 是瞬时高光（撞击用）

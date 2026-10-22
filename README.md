@@ -1,6 +1,6 @@
 # 雨夜便利店街角 / Rainy Corner Mart
 
-一个用 Godot 4.7 程序化搭建的「雨夜日式便利店街角」微缩场景，以及从它延伸出去的 35.6m 日式商店街。全部几何体、材质、灯光与雨效均由 GDScript 在运行时生成，没有外部模型或贴图依赖。
+一个用 Godot 4.7 程序化搭建的「雨夜日式便利店街角」微缩场景，以及从它延伸出去的 35.6m 日式商店街和国道旁的加油站。全部几何体、材质、灯光与雨效均由 GDScript 在运行时生成，没有外部模型或贴图依赖。
 
 场景有几种看法：
 
@@ -8,11 +8,12 @@
 | --- | --- | --- |
 | **可玩版**（默认入口） | `scenes/store_walk.tscn` | 第三人称走进便利店：自动门、店内交互、跟随镜头；进过店再下马路会被货车撞 |
 | **商店街可玩版**（扩展） | `scenes/hoshi_street.tscn` | 35.6m 日式商店街：出生在东口牌楼内侧、面朝西；两排店面 / 候车亭 / 斑马线，沿街走到西端进同一家便利店 |
+| **加油站剧情版**（扩展） | `scenes/gas_station.tscn` | 雨夜服务区：收音机 / 司机 / 擦身车三件小事之后进入逢魔时，国道车祸 → 死亡演出 → 异世界草原 |
 | 微缩展示版 | `scenes/main.tscn` | 轨道相机俯瞰整个 11.2m 底座，原版编排 |
 | 编排备份 | `scenes/diorama_orbit.tscn` | 改造前编排的冻结副本（见「备份」一节） |
 
-两个可玩场景共用 `kit / store / props / hud / interaction_hub / player_controller`。
-`hoshi_street` 只新增街道层，`store_walk` 的编排与探针不受影响。
+三个可玩场景共用 `kit / store / props / hud / interaction_hub / player_controller`。
+`hoshi_street` 只新增街道层，`gas_station` 只新增服务区与剧情层，`store_walk` 的编排与探针不受影响。
 
 ![preview](preview.png)
 
@@ -35,6 +36,7 @@ GODOT_BIN=/path/to/godot ./tools/run.sh
 ```bash
 ./tools/run.sh grassland                    # 简写，自动补 res://scenes/ 与 .tscn
 ./tools/run.sh hoshi_street                 # 日式商店街（新街区）
+./tools/run.sh gas_station                  # 国道 17 号加油站（剧情版）
 ./tools/run.sh opening_flow                 # 原来的开场流程（雨夜三幕 → 草原）
 ./tools/run.sh --editor store_walk          # 在编辑器里打开该场景
 ./tools/run.sh --headless walk_probe        # 无窗口跑回归
@@ -66,7 +68,7 @@ GODOT_BIN=/path/to/godot ./tools/run.sh
 | `空格` | 跳 |
 | 鼠标移动 | 转视角（第三人称弹簧臂） |
 | 鼠标滚轮 | —— 预留，当前固定机位距离 |
-| `E` / `F` | 与附近目标互动（冷柜 / 货架 / 服务铃 / 猫；街区的暖帘 / 菜牌 / 候车亭 / 店面） |
+| `E` / `F` | 与附近目标互动（冷柜 / 货架 / 服务铃 / 猫；街区的暖帘 / 菜牌 / 候车亭 / 店面；加油站的收音机 / 司机 / 油枪） |
 | `Esc` | 释放鼠标（点回窗口重新锁定） |
 
 **自动门**不需要按键：走到门前 2.35m 自动滑开，离开 0.45 秒后自动关闭；
@@ -83,6 +85,21 @@ GODOT_BIN=/path/to/godot ./tools/run.sh
 南侧是住宅 / 钱汤 / 喫茶店 / 洗衣店 / 诊所 / 口袋公园；中间是 2.9m 车道，带斑马线和
 候车亭。沿街可以掀暖帘、买罐装咖啡、看洗衣机、查末班车；一直往西走，尽头还是
 同一家 HOSHI MART。东口外只做了视觉背景楼，没有可走区域，边界围栏把人留在街上。
+
+**加油站剧情**（`gas_station`）：雨夜 00:06 的服务区里没有任务列表，只有三件小事情：
+
+1. 柜台窗台的收音机在播「国道 17 号深夜货运高峰，一辆白色厢式货车刚从星见町服务区驶出」；
+2. 第一次踏上国道，一辆轻自动车贴着肩膀过去 —— 你躲开了，于是相信自己反应够快；
+3. 东侧停着一辆厢式货车，司机打着哈欠说「最后一趟，跑完这趟就收车」。
+
+三件都做过之后，天光跳到「逢魔时 18:42」，货车与司机消失，西边路面亮起两点车灯。
+再踏上国道，白色货车从同一个方向驶来：慢镜头、喇叭、撞击。之后是三层死亡：
+画面去色撕裂并反向操作 → 听觉只剩耳鸣、可以伸手但雨不会停 → 几件普通的闪回。
+最后字母转场到草原，落地只按嗅觉 / 听觉 / 痛觉 / 视觉认识这具身体和新世界。
+
+三颗子弹可以任意顺序完成，只有全部完成才会变天；逢魔时之后回商店街的路牌失效，
+旧世界线不再可回。关键参数在 `gas_station_story.gd` 顶部：`DUSK_GRACE` 是变天后
+留给玩家反应的缓冲，`STATION_CLIP` 是货车在 30×18m 场地上不被裁剪的盒子。
 
 ## 备份：改造前的编排
 
@@ -104,6 +121,7 @@ GODOT_BIN=/path/to/godot ./tools/run.sh
 ```
 scenes/store_walk.tscn  可玩版入口（第三人称 + 交互）
 scenes/hoshi_street.tscn 商店街可玩版（35.6m 双排街区）
+scenes/gas_station.tscn 加油站剧情版（雨夜服务区 → 逢魔时 → 车祸 → 草原）
 scenes/main.tscn        微缩展示版（只挂 main.gd）
 scenes/diorama_orbit.tscn 编排备份（冻结副本）
 scenes/opening_flow.tscn  原开场流程（雨夜三幕 → 草原）
@@ -111,6 +129,9 @@ scenes/grassland.tscn   异世界草原
 
 scripts/store_walk.gd   可玩版编排：装配世界 / 玩家 / 门 / HUD / 交互 / 开场推镜 / 截图模式
 scripts/hoshi_street.gd 商店街编排：世界装配 / 出生点 / 开场推镜 / 区域判定 / 交互 / 截图
+scripts/gas_station.gd  加油站编排：世界装配 / 油机与小卖亭 / 区域判定 / 交互 / 截图
+scripts/gas_station_story.gd 加油站剧情状态机：三颗子弹 / 逢魔时 / 撞击 / 死亡 / 转场
+scripts/story_veil.gd   死亡面纱与告别字幕（去色 / 撕裂 / 噪点 / 伸手提示）
 scripts/town.gd         街道层：底座 / 地面 / 标线 / 排水 / 电线杆 / 路灯 / 东口牌楼 / 街具 / 背景楼
 scripts/shop_row.gd     两排日式店面：拉面 / 居酒屋 / 洗衣 / 烟店 / 公寓 / 交番 / 住宅 / 钱汤 / 喫茶…
 scripts/town_collision.gd 街区碰撞层：地面 / 路缘斜面 / 店面 / 巷道 / 街具 / 边界
@@ -130,7 +151,7 @@ scripts/props.gd        道具：贩卖机 / 自行车 / 伞架 / 垃圾桶 / �
 scripts/kit.gd          建模工具库：体块、圆柱、管线、拉杆、文字、材质缓存
 scripts/backup/diorama_orbit.gd 改造前编排的冻结副本
 scripts/dialogue/       对话解析与播放（草原用）
-shaders/                三渲二 / 描边 / 砖缝 / 玻璃 / 自发光 / 湿光 / 车灯光束 / 雨 / 涟漪
+shaders/                三渲二 / 描边 / 砖缝 / 玻璃 / 自发光 / 湿光 / 车灯光束 / 雨 / 涟漪 / 死亡面纱
 
 tools/run.sh            单场景运行（不改 project.godot）
 tools/check.sh          全量回归：自动发现并跑 tools/*_probe.tscn
@@ -140,6 +161,8 @@ tools/walk_probe.tscn   便利店行走回归（14 条断言，见「自测」�
 tools/truck_probe.tscn  车祸事件回归（17 条断言，见「自测」）
 tools/street_probe.tscn 商店街回归（17 条断言，见「自测」）
 tools/grassland_probe.tscn 草原交互回归（41 条断言）
+tools/gas_station_probe.tscn 加油站场景回归（13 条断言）
+tools/gas_station_story_probe.tscn 加油站剧情回归（25 条断言）
 ```
 
 ## 交互实现要点
@@ -192,7 +215,7 @@ tools/grassland_probe.tscn 草原交互回归（41 条断言）
 ./tools/check.sh
 ```
 
-跑 `tools/` 下全部 `*_probe.tscn`，一个场景一行结果，最后给总判定。现在有四组：
+跑 `tools/` 下全部 `*_probe.tscn`，一个场景一行结果，最后给总判定。现在有八组：
 
 | probe | 断言 | 测什么 |
 | --- | --- | --- |
@@ -200,6 +223,10 @@ tools/grassland_probe.tscn 草原交互回归（41 条断言）
 | `truck_probe` | 17 | 车祸事件：触发条件、冲刺速度、命中判定、慢镜头、收黑复位、不重复触发、车出台面后回收 |
 | `street_probe` | 17 | 商店街：出生点在东口、沿街往西可走、两排店面挡得住、上下 16cm 路缘、斑马线过街、拉面店 / 候车亭交互、从新街区走进同一家便利店 |
 | `grassland_probe` | 41 | 狗与两个守卫的交互、提示出/收、区域标签、对话全流程、守卫站姿与脚底贴地 |
+| `gas_station_probe` | 13 | 加油机岛台与小卖亭挡人、16cm 路缘、顶棚区域、柜台隔窗提示、转场锁 |
+| `gas_station_story_probe` | 25 | 收音机 / 司机 / 擦身车三颗子弹、逢魔时、道具撤场、回程锁定、撞车、死亡接管环境声、终态 DONE |
+| `prop_collision_probe` | 12 | 商店街街具与便利店门前道具的碰撞足迹 |
+| `transition_probe` | 7 | 字母转场：层级、字母拆分、进度、自毁 |
 
 判定失败的条件有三条：probe 退出码非 0、输出里有 `SCRIPT ERROR` / `Parse Error`、
 probe 自己打印的 `failed` 计数非 0。**只靠退出码会漏**，因为 Godot 打包脚本错误时经常照样返回 0。
@@ -210,6 +237,7 @@ probe 自己打印的 `failed` 计数非 0。**只靠退出码会漏**，因为 
 ./tools/run.sh --headless walk_probe
 ./tools/run.sh --headless truck_probe   # 无渲染，只走车祸事件状态机
 ./tools/run.sh --headless street_probe  # 无渲染，只走商店街移动 / 碰撞 / 交互
+./tools/run.sh --headless gas_station_story_probe  # 三颗子弹 → 逢魔时 → 撞车 → 死亡
 ```
 
 新增 probe 只要命名成 `tools/xxx_probe.tscn` 就会被自动纳入，不用改脚本，也不用改 CI。
@@ -242,6 +270,12 @@ probe 自己打印的 `failed` 计数非 0。**只靠退出码会漏**，因为 
 - 交互点与文案：`store_walk.gd` 的 `_setup_interactions()` 与 `_on_*` 回调。
   按 E 时 `interaction_hub.gd` 会先让角色转向目标点（`player.look_at_point()`，
   锁定 0.55s），四个交互点共用这一套，不用各写一遍。
+  `add_target()` 的第 6 个参数 `priority` 用于剧情目标：默认 0 时只比距离，
+  收音机用 1 压过旁边的售货机，听过之后 gate 关闭、自动让位。
+- 加油站剧情：`gas_station_story.gd` 顶部的 `DUSK_GRACE`（变天后反应缓冲）、
+  `STATION_CLIP`（货车裁剪盒）、`RADIO_TARGET` / `DRIVER_TARGET`（交互点）；
+  三颗子弹的文案与回调查 `_on_radio()` / `_on_driver()` / `_launch_near_van()`；
+  死亡演出时长在 `_death_sequence()`，面纱参数在 `_start_veil()`。
 - 车祸事件：`truck_event.gd` 顶部的 `SIDE`（从哪一侧驶入，改符号换边）/ `SPEED` /
   `SPAWN_GAP` / `TRIGGER_Z`（走到路中间才触发）/ `LANE_MIN..MAX` / `SLOWMO_GAP` / `SLOWMO_SCALE` / `RESPAWN`；
   车的尺寸与轮位在 `truck.gd` 的 `L` / `W` / `AXLES`。
@@ -263,6 +297,10 @@ probe 自己打印的 `failed` 计数非 0。**只靠退出码会漏**，因为 
 # 商店街：7 张（出生点 / 东口牌楼 / 北排店面 / 南排住宅 / 便利店全景 / 牌楼西望 / 店内）→ shots/street_*.png
 ./tools/run.sh hoshi_street -- --shot
 ./tools/run.sh hoshi_street -- --shot --only=street_b_gate
+
+# 加油站：6 张（到达 / 顶棚 / 油机 / 小卖亭 / 价格塔 / 全景）→ shots/gas_*.png
+# 截图模式不建剧情道具，机位是给「空加油站」构图的
+./tools/run.sh gas_station -- --shot
 
 # 微缩展示版：7 个轨道机位 → shots/a_front.png 等
 ./tools/run.sh main -- --shot
