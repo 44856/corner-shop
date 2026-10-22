@@ -321,6 +321,39 @@ func look_away() -> void:
 	_look_has = false
 
 
+## 回归测试用的姿态读数，全部是世界空间。
+##
+## 为什么交出这个而不是把骨架 / 骨骼名暴露出去：测试一旦开始读 `_skel`、
+## 自己 `find_bone("Bip001-Head")`，改个字段名或者换一套模型就会**静默**弄坏断言 ——
+## 没有任何编译错误提醒，只会在某天发现探针绿着但守卫生病了（AGENTS.md R2）。
+## 所以骨骼命名留在这个文件里，外面只拿到测试真正关心的四个量。
+##
+## 返回 pelvis / hand_r / ankle_l（世界坐标）与 head_dir（头部正前方单位向量）。
+## 拿不到骨架时返回空字典，调用方自己判空。
+func pose_probe() -> Dictionary:
+	if _skel == null:
+		return {}
+	var head := _skel.find_bone("Bip001-Head")
+	if head < 0:
+		return {}
+	var head_basis := _skel.global_transform.basis * _skel.get_bone_global_pose(head).basis
+	return {
+		"pelvis": _bone_world("Bip001-Pelvis"),
+		"hand_r": _bone_world("Bip001-R-Hand"),
+		"ankle_l": _bone_world("Bip001-L-Foot"),
+		"head_dir": head_basis.z.normalized(),
+	}
+
+
+## 骨骼原点的世界坐标。没有这根骨骼就返回世界原点，
+## 让断言以「数值离谱」的方式失败，而不是静默通过。
+func _bone_world(bone: String) -> Vector3:
+	var i := _skel.find_bone(bone)
+	if i < 0:
+		return Vector3.ZERO
+	return _skel.global_transform * _skel.get_bone_global_pose(i).origin
+
+
 ## 注视权重与目标角。权重走平滑，避免玩家进入半径那一瞬间「啪」地扭头。
 func _update_attention(delta: float) -> void:
 	_look_w = move_toward(_look_w, 1.0 if _look_has else 0.0, delta * 2.5)
