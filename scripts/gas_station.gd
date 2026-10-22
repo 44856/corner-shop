@@ -20,6 +20,7 @@ const Hud := preload("res://scripts/hud.gd")
 const Hub := preload("res://scripts/interaction_hub.gd")
 const Sfx := preload("res://scripts/sfx.gd")
 const LetterTransition := preload("res://scripts/letter_transition.gd")
+const GasStationStory := preload("res://scripts/gas_station_story.gd")
 
 ## 场地范围。0 是西缘，30 是东缘；国道沿 X 穿过，z 0..4 是车行道。
 const X0 := 0.0
@@ -61,12 +62,16 @@ var player: CharacterBody3D
 var hud
 var hub
 var env: Environment
+var moon: DirectionalLight3D
+var fill: DirectionalLight3D
+var story
 
 var _zone := "walk"
 var _transitioning := false
 var _arriving := false
 var _shooting := false
 var _seen_forecourt := false
+var _audio_override := false
 var _rain: AudioStreamPlayer
 var _hum: AudioStreamPlayer
 
@@ -75,7 +80,7 @@ func _ready() -> void:
 	# 转场层还挂在 root 上 = 我们是被转场送过来的，开场黑幕由它负责淡出。
 	_arriving = get_tree().root.has_node("LetterTransition")
 
-	env = WorldEnv.build(self, {
+	var world := WorldEnv.build(self, {
 		"fog_length": 58.0,
 		"rain": {
 			"center": Vector2(CENTER_X, CENTER_Z),
@@ -86,7 +91,10 @@ func _ready() -> void:
 			"covers": _rain_covers(),
 		},
 		"ripples": _ripples(),
-	})["environment"]
+	})
+	env = world["environment"]
+	moon = world["moon"]
+	fill = world["fill"]
 
 	var g := K.group(self, "Station")
 	_build_ground(g)
@@ -105,8 +113,13 @@ func _ready() -> void:
 	_setup_audio()
 
 	if "--shot" in OS.get_cmdline_user_args():
+		# 截图模式不建剧情道具：旧机位是给「空加油站」构图的，
+		# 多一台货车会挡住 gas_c/gas_f 的视线。
 		_take_shots()
-	elif _arriving:
+		return
+
+	_setup_story()
+	if _arriving:
 		_on_arrival()
 	else:
 		_show_first_frame()
@@ -806,12 +819,37 @@ func _setup_interactions() -> void:
 	hub.add_target(Vector3(7.65, 0.9, 6.75), 1.4, "给轮胎打气", _on_air)
 	hub.add_target(Vector3(26.4, 1.5, 5.2), 2.0, "看看油价", _on_price)
 	hub.add_target(Vector3(7.9, 1.1, 11.35), 1.5, "买一罐热咖啡", _on_vending)
-	hub.add_target(Vector3(28.75, 1.2, -0.2), 1.7, "回星见町商店街", _on_back)
+	# 逢魔时之后旧世界线已经收束，路牌上的「回商店街」不再生效。
+	hub.add_target(Vector3(28.75, 1.2, -0.2), 1.7, "回星见町商店街", _on_back, _can_return)
+
+
+func _can_return() -> bool:
+	return story == null or story.return_allowed()
+
+
+func _setup_story() -> void:
+	story = GasStationStory.new()
+	story.name = "Story"
+	# 先 bind 再 add_child：剧情节点的 _ready() 会直接开始搭货车 / 收音机，
+	# 那时它必须已经拿得到 player / hud / hub / env。
+	story.bind(self)
+	add_child(story)
 
 
 func _setup_audio() -> void:
 	_rain = _looping_player("res://audio/rain_loop.wav", -14.0)
 	_hum = _looping_player("res://audio/drone_loop.wav", -38.0)
+
+
+## 剧情死亡时把环境声一起收掉。只暴露这一个入口，不让剧情去读 _rain / _hum：
+## 那两个节点是私有的，换个命名、加一层容器就会静默失效。
+func fade_station_audio(seconds: float) -> void:
+	_audio_override = true
+	var tw := create_tween().set_parallel(true)
+	if _rain != null:
+		tw.tween_property(_rain, "volume_db", -60.0, seconds)
+	if _hum != null:
+		tw.tween_property(_hum, "volume_db", -60.0, seconds)
 
 
 func _looping_player(path: String, db: float) -> AudioStreamPlayer:
@@ -870,6 +908,8 @@ func lock_for_transition() -> void:
 	if hud != null:
 		hud.hide_prompt()
 		hud.hide_toast()
+	if story != null and story.has_method("on_transition_lock"):
+		story.on_transition_lock()
 
 
 func _process(delta: float) -> void:
@@ -884,18 +924,21 @@ func _process(delta: float) -> void:
 	if zone != _zone:
 		_on_zone_changed(zone)
 
-	# 顶棚下只剩铁皮上的闷响，雨声要明显收一档
-	var rain_db := -20.0 if zone == "canopy" else -14.0
-	if _rain != null:
-		_rain.volume_db = lerpf(_rain.volume_db, rain_db, 1.0 - exp(-1.6 * delta))
-	if _hum != null:
-		_hum.volume_db = lerpf(_hum.volume_db, -38.0, 1.0 - exp(-1.6 * delta))
+	# 顶棚下只剩铁皮上的闷响，雨声要明显收一档。
+	# 死亡段由剧情接管音量，这里再往回拉会把「听觉熄灭」拉回去。
+	if not _audio_override:
+		var rain_db := -20.0 if zone == "canopy" else -14.0
+		if _rain != null:
+			_rain.volume_db = lerpf(_rain.volume_db, rain_db, 1.0 - exp(-1.6 * delta))
+		if _hum != null:
+			_hum.volume_db = lerpf(_hum.volume_db, -38.0, 1.0 - exp(-1.6 * delta))
 
 	# 往东走过路牌就回商店街。只认北侧人行道：前场东缘也在 x > RETURN_X，
 	# 不加 z 条件的话，人在油站里绕到东边就会被莫名其妙地送走。
 	# 出生点在触发线以西 1.55m，落地不会立刻反弹。
 	if not _transitioning and not _shooting and not player.input_locked \
-			and p.x > RETURN_X and p.z < ROAD_Z0:
+			and p.x > RETURN_X and p.z < ROAD_Z0 \
+			and (story == null or not story.blocks_return()):
 		_go_shotengai()
 
 
@@ -932,6 +975,8 @@ func _on_zone_changed(zone: String) -> void:
 
 func _go_shotengai() -> void:
 	if _transitioning:
+		return
+	if story != null and story.blocks_return():
 		return
 	# 先看层在不在，再锁人：层还在时锁了再返回，会把人卡在输入锁里。
 	if get_tree().root.has_node("LetterTransition"):

@@ -72,6 +72,8 @@ const ActorScript := preload("res://scripts/actor.gd")
 
 ## 开场期间锁住输入，由 grassland.gd 在醒来补间结束后置 false
 var input_locked := true
+## 死亡演出用：方向输入整体取反。默认 false，普通场景完全不受影响。
+var control_inverted := false
 
 # 生成出来的节点
 var visual: Node3D
@@ -386,6 +388,8 @@ func _update_locomotion(delta: float) -> void:
 ## 把 WASD 按相机朝向映射到世界方向
 func _wish_direction() -> Vector3:
 	var input_vec := Input.get_vector("move_left", "move_right", "move_backward", "move_forward")
+	if control_inverted:
+		input_vec = -input_vec
 	if input_vec == Vector2.ZERO:
 		return Vector3.ZERO
 
@@ -498,6 +502,7 @@ func reset_motion() -> void:
 	_walk_phase = 0.0
 	_was_airborne = false
 	_face_hold = 0.0
+	control_inverted = false
 	if visual != null:
 		visual.position.y = 0.0
 	input_locked = false

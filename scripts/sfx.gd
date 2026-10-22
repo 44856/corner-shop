@@ -73,6 +73,58 @@ static func impact() -> AudioStreamWAV:
 	return s
 
 
+## 耳鸣：撞击后听觉先「剩一条高频」，持续到感官熄灭。
+## 两个高频叠一点拍频，单音会像测试信号，两个才像耳朵坏了。
+static func tinnitus() -> AudioStreamWAV:
+	if _cache.has("tinnitus"):
+		return _cache["tinnitus"]
+	var buf := _blank(8.0)
+	_add_tone(buf, 4180.0, 0.0, 7.6, 0.42, 0.16)
+	_add_tone(buf, 6220.0, 0.0, 7.2, 0.55, 0.09)
+	var s := _to_wav(buf)
+	_cache["tinnitus"] = s
+	return s
+
+
+## 白噪：冲击层那一团「耳朵里全是沙」的声音，衰减比撞击慢。
+static func static_noise() -> AudioStreamWAV:
+	if _cache.has("static_noise"):
+		return _cache["static_noise"]
+	var buf := _blank(2.4)
+	_add_noise(buf, 0.0, 2.2, 2.2, 0.42)
+	_add_noise(buf, 0.0, 0.4, 8.0, 0.25)
+	var s := _to_wav(buf)
+	_cache["static_noise"] = s
+	return s
+
+
+## 擦肩车：一团从右到左扫过去的风。没有多普勒，靠音量包络和镜头抖补。
+static func whoosh() -> AudioStreamWAV:
+	if _cache.has("whoosh"):
+		return _cache["whoosh"]
+	var buf := _blank(0.9)
+	_add_noise(buf, 0.0, 0.85, 2.8, 0.34)
+	_add_tone(buf, 92.0, 0.0, 0.55, 5.0, 0.12)
+	var s := _to_wav(buf)
+	_cache["whoosh"] = s
+	return s
+
+
+## 柜台里的深夜广播：AM 底噪 + 一个被慢速起伏调制的载波。
+## 不合成人声，人声由 HUD 文案承担；这里只要「有东西在说话」。
+static func radio() -> AudioStreamWAV:
+	if _cache.has("radio"):
+		return _cache["radio"]
+	var buf := _blank(3.4)
+	_add_noise(buf, 0.0, 3.2, 0.55, 0.10)
+	_add_tone(buf, 196.0, 0.0, 2.8, 0.7, 0.035)
+	_add_tone(buf, 392.0, 0.0, 2.4, 0.9, 0.018)
+	_add_tone(buf, 1180.0, 0.15, 0.12, 8.0, 0.10)
+	var s := _to_wav(buf)
+	_cache["radio"] = s
+	return s
+
+
 # ---------------------------------------------------------------- 合成
 
 static func _blank(seconds: float) -> PackedFloat32Array:
