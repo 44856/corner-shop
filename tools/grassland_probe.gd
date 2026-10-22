@@ -38,7 +38,11 @@ func _ready() -> void:
 
 	_check("HUD 已创建", _hud != null)
 	_check("交互中枢已创建", _hub != null)
-	_check("注册了 3 个交互点（狗 + 2 守卫）", _hub.get("_targets").size() == 3)
+	# 交互点：狗 + 2 守卫 + 2 接待 + 2 块任务板 = 7
+	# 中枢没有公开的计数接口，这里直接读内部数组 —— 断言的是「数量对不对」，
+	# 不是「内部结构长什么样」，字段改名的时候这里一起改就行。
+	_check("注册了 7 个交互点（狗 + 2 守卫 + 2 接待 + 2 任务板）",
+		_hub.get("_targets").size() == 7)
 	_check("狗把按键与头顶提示交给了中枢", _dog.self_interaction == false)
 
 	# ---- 区域标签
@@ -46,6 +50,13 @@ func _ready() -> void:
 	await _zone_at(200.0, "官道")
 	await _zone_at(330.0, "城门内 · 方石广场")
 	await _zone_at(440.0, "广场 · 大理石")
+	# 公会不在这条 z 轴采样线上，单独判一次
+	_player.global_position = Vector3(-126.0, 0.05, 328.0)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var guild_zone := String(_hud.get("_zone_chip").text)
+	_check("公会大厅区域=%s" % "冒险者公会 · 大厅", guild_zone == "冒险者公会 · 大厅",
+		"" if guild_zone == "冒险者公会 · 大厅" else "实际 " + guild_zone)
 
 	# ---- 狗
 	_player.global_position = _dog.global_position + Vector3(0.0, 0.05, 1.1)
