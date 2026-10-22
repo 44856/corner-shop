@@ -25,13 +25,25 @@ const PlayerController := preload("res://scripts/player_controller.gd")
 const Hud := preload("res://scripts/hud.gd")
 const Hub := preload("res://scripts/interaction_hub.gd")
 const Sfx := preload("res://scripts/sfx.gd")
+const K := preload("res://scripts/kit.gd")
+const CollisionLayout := preload("res://scripts/collision_layout.gd")
+const LetterTransition := preload("res://scripts/letter_transition.gd")
 
 ## 出生点：东口牌楼内侧、北人行道上，面朝西。
 ## x 再往东 0.3m 就会落进「交番」交互点的半径里，开场提示会抢画面。
 const SPAWN := Vector3(24.2, 0.17, 1.5)
 
-## 街道机位：比店内远一档，能同时看到人和两侧店招
-const CAM_OUT := {"dist": 4.9, "height": 1.58, "fov": 52.0, "shoulder": 0.30}
+## 西口：走到这里就切去加油站。边界墙内面在 x ≈ −5.4，
+## 0.32m 半径的胶囊最远只能到 −5.08 —— 触发线必须留在它东边。
+const WEST_EXIT_X := Town.X0 + 0.7
+## 从加油站回来时的落点。离触发线 1.05m，转身再往回走要花半秒以上，
+## 不会一落地就又被送回去。
+const ARRIVE_FROM_GAS := Vector3(Town.X0 + 1.75, 0.17, 1.5)
+const GAS_STATION_SCENE := "res://scenes/gas_station.tscn"
+
+## 街道机位：与加油站同一套肩后视角。开阔处 4.9m 会把人物拉远，
+## 收到 4.4m、支点降到胸口；窄处弹簧臂本来就会自己收短。
+const CAM_OUT := {"dist": 4.4, "height": 1.45, "fov": 52.0, "shoulder": 0.30}
 ## 店内机位：与 store_walk 完全一致（4.2×4.2m 的店塞不下长摇臂）
 const CAM_IN := {"dist": 1.6, "height": 1.55, "fov": 70.0, "shoulder": 0.28}
 
@@ -57,6 +69,9 @@ var env: Environment
 var _inside := false
 var _zone := "gate"
 var _shooting := false
+## 由转场层送进来：跳过自己的开场运镜，落点改到西口
+var _arriving := false
+var _transitioning := false
 var _shadow: MeshInstance3D
 var _rain: AudioStreamPlayer
 var _hum: AudioStreamPlayer
@@ -65,6 +80,10 @@ var _intro_tween: Tween
 
 
 func _ready() -> void:
+	# 转场层还挂在 root 上 = 我们是被转场送回来的。必须最先判断：
+	# _setup_player 要用它决定落点和朝向。
+	_arriving = get_tree().root.has_node("LetterTransition")
+
 	env = WorldEnv.build(self, {
 		"fog_length": 48.0,
 		"rain": {
@@ -84,6 +103,7 @@ func _ready() -> void:
 	Props.storefront(self)
 	Props.alley(self)
 	TownCollision.build(self)
+	_build_west_exit()
 
 	_setup_player()
 	_setup_door()
@@ -93,6 +113,8 @@ func _ready() -> void:
 
 	if "--shot" in OS.get_cmdline_user_args():
 		_take_shots()
+	elif _arriving:
+		_on_arrival()
 	else:
 		_play_intro()
 
@@ -102,9 +124,10 @@ func _ready() -> void:
 func _setup_player() -> void:
 	player = PlayerController.new()
 	player.name = "Player"
-	player.position = SPAWN
-	# 相机在 +X 侧、看向 −X：背对牌楼、面朝整条商店街
-	player.start_yaw_deg = 90.0
+	# 第一次进来落在东口、面朝西；从加油站回来则落在西口、面朝东。
+	# 相机始终在身后 —— 若还按开场那套摆，玩家一回来就是镜头对着脸。
+	player.position = ARRIVE_FROM_GAS if _arriving else SPAWN
+	player.start_yaw_deg = 270.0 if _arriving else 90.0
 	player.capture_mouse_on_start = false
 	player.actor_tint = Color(0.52, 0.55, 0.66)
 	player.actor_shade_floor = 0.34
@@ -114,7 +137,7 @@ func _setup_player() -> void:
 	player.cam_height = CAM_OUT["height"]
 	add_child(player)
 	player.input_locked = true
-	player.face(-PI * 0.5)
+	player.face(PI * 0.5 if _arriving else -PI * 0.5)
 	player.set_camera_profile(CAM_OUT["dist"], CAM_OUT["height"], CAM_OUT["fov"],
 		CAM_OUT["shoulder"], 6.0)
 
@@ -185,6 +208,86 @@ func _looping_player(path: String, db: float) -> AudioStreamPlayer:
 	return p
 
 
+# ---------------------------------------------------------------- 西口
+
+## 西口的路牌。牌面朝东（玩家沿街往西走时正对着它），比触发线早 0.7m，
+## 读到字的时候还来得及回头；再往前一步才会切场景。
+func _build_west_exit() -> void:
+	var g := K.group(self, "WestExit")
+	var steel := K.toon(Color("#4e535b"), {"shade": 0.55, "rim": 0.28, "line": 0.006})
+	var green := K.toon(Color("#1d3a33"), {"shade": 0.5, "rim": 0.22, "line": 0.007})
+	var px := Town.X0 + 1.4
+	var pz := 0.45
+
+	K.cyl(g, 0.05, 2.55, Vector3(px, Town.WALK_Y + 1.275, pz), steel, Vector3.ZERO, 8)
+	K.box(g, Vector3(0.07, 0.62, 1.5), Vector3(px, Town.WALK_Y + 2.3, pz), green)
+	K.label_cjk(g, "国道 17 号", Vector3(px + 0.045, Town.WALK_Y + 2.42, pz), 0.15,
+		Color("#f3dfb4"), Vector3(0, 90, 0))
+	K.label(g, "HOSHIMI SERVICE STATION", Vector3(px + 0.045, Town.WALK_Y + 2.24, pz), 0.058,
+		Color("#d7c8a8"), Vector3(0, 90, 0))
+	K.label(g, "WEST  ·  300m", Vector3(px + 0.045, Town.WALK_Y + 2.12, pz), 0.05,
+		Color("#9fb0a2"), Vector3(0, 90, 0))
+	K.sphere(g, 0.05, Vector3(px, Town.WALK_Y + 2.62, pz), K.glow(Color("#ffd9a2"), 2.0),
+		Vector3.ZERO, 8, 1.0, false)
+	var l := OmniLight3D.new()
+	l.light_color = Color("#ffd0a0")
+	l.light_energy = 0.5
+	l.omni_range = 3.4
+	l.position = Vector3(px, Town.WALK_Y + 2.3, pz)
+	g.add_child(l)
+	K.plane(g, Vector2(1.8, 1.8), Vector3(px, Town.WALK_Y + 0.007, pz),
+		K.wet(Color("#ffcf9a"), 0.05), Vector3.ZERO, false)
+
+	CollisionLayout.pillar(g, Vector3(px, Town.WALK_Y + 1.275, pz), 0.06, 2.55)
+
+
+## 被转场送回来：黑幕由转场层负责淡开，这里只负责解锁和点灯。
+## 前 1.2s 继续忽略西口触发 —— 转场层自己还要 1s 才自毁，
+## 这段时间里再触发一次会撞上一个还没消失的层。
+func _on_arrival() -> void:
+	hud.fade_in(0.0)
+	player.camera.current = true
+	player.input_locked = false
+	door.enabled = true
+	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	_on_zone_changed("west")
+	hud.toast("国道的水汽还挂在衣服上。商店街的灯，从街尾一路亮过来。", 4.5)
+
+	_transitioning = true
+	await get_tree().create_timer(1.2).timeout
+	_transitioning = false
+
+
+## 转场开始后锁住当前场景。LetterTransition 也会调一次，重复调用无害。
+func lock_for_transition() -> void:
+	player.input_locked = true
+	if hub != null:
+		hub.enabled = false
+	if hud != null:
+		hud.hide_prompt()
+		hud.hide_toast()
+
+
+func _go_gas_station() -> void:
+	if _transitioning:
+		return
+	# 先看层在不在，再锁人：层还在（上一趟还在淡出）时锁了再返回，
+	# 会把人永久卡在输入锁里。
+	if get_tree().root.has_node("LetterTransition"):
+		return
+
+	_transitioning = true
+	lock_for_transition()
+
+	var tr := LetterTransition.new()
+	tr.name = "LetterTransition"
+	tr.title_text = "HOSHIMI"
+	tr.subtitle_text = "SERVICE STATION"
+	tr.footer_text = "ROUTE 17 · 00:06"
+	get_tree().root.add_child(tr)
+	tr.play(GAS_STATION_SCENE)
+
+
 # ---------------------------------------------------------------- 开场
 
 func _play_intro() -> void:
@@ -247,7 +350,7 @@ func _on_intro_finished(cam: Camera3D) -> void:
 	player.input_locked = false
 	door.enabled = true
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-	hud.toast("WASD 移动 · 沿街往西，尽头是便利店", 4.0)
+	hud.toast("WASD 移动 · 沿街往西，尽头是便利店和国道", 4.0)
 
 
 # ---------------------------------------------------------------- 每帧
@@ -263,6 +366,10 @@ func _process(delta: float) -> void:
 	var zone := _zone_at(p)
 	if zone != _zone:
 		_on_zone_changed(zone)
+
+	# 西口出镇。必须等开场 / 截图 / 已有转场都结束，否则读档一落地就被送走。
+	if not _transitioning and not _shooting and not player.input_locked and p.x < WEST_EXIT_X:
+		_go_gas_station()
 
 	# 雨声：街上比店里响一档；店里的低频压缩机声更近
 	var rain_db := -26.0 if _inside else -14.0
@@ -285,6 +392,9 @@ func is_inside() -> bool:
 func _zone_at(p: Vector3) -> String:
 	if INTERIOR.has_point(p):
 		return "in"
+	# 便利店西墙之外整段都算西口：牌子、路灯、出镇的触发线都在这一带
+	if p.x < Town.X0 + 2.4:
+		return "west"
 	if p.z >= Town.ROAD_Z1:
 		return "south"
 	if p.z >= Town.ROAD_Z0:
@@ -312,6 +422,8 @@ func _on_zone_changed(zone: String) -> void:
 			hud.set_zone("商店街 · 东口", true)
 		"storefront":
 			hud.set_zone("便利店 · 门前", true)
+		"west":
+			hud.set_zone("商店街 · 西口", true)
 		_:
 			hud.set_zone("商店街 · 北侧", false)
 
@@ -436,7 +548,7 @@ func _take_shots() -> void:
 
 	var specs := [
 		{"name": "street_a_spawn", "player": true, "pos": SPAWN, "face": -PI * 0.5,
-			"yaw": 90.0, "pitch": -0.10, "dist": 4.9, "height": 1.58, "fov": 52.0,
+			"yaw": 90.0, "pitch": -0.10, "dist": 4.4, "height": 1.45, "fov": 52.0,
 			"shoulder": 0.30, "exp": EXPOSE_OUT},
 		{"name": "street_b_gate", "free": Vector3(29.6, 5.6, 3.0),
 			"look": Vector3(14.0, 2.4, 2.2), "fov": 70.0, "exp": EXPOSE_OUT},
