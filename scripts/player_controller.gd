@@ -18,6 +18,9 @@ extends CharacterBody3D
 
 const ActorScript := preload("res://scripts/actor.gd")
 
+## 胶囊半径。撞车判定要算「车头到角色表面」的距离，别在剧情脚本里再抄一个数。
+const BODY_RADIUS := 0.32
+
 @export_group("移动")
 ## 常规移动速度（米/秒）
 @export var walk_speed := 4.2
@@ -116,6 +119,14 @@ var _shake_amp := 0.0
 var _shake_dur := 0.0
 var _shake_left := 0.0
 
+# 剧情闪避：锁输入期间的一次侧扑，位移在固定时长内收住
+var _dodge_from := Vector3.ZERO
+var _dodge_to := Vector3.ZERO
+var _dodge_t := 0.0
+var _dodge_dur := 0.0
+var _dodge_lean := 0.0
+var _dodging := false
+
 
 func _ready() -> void:
 	_ensure_actions()
@@ -163,7 +174,7 @@ func _build_body() -> void:
 	var cap := CapsuleShape3D.new()
 	# 胶囊总高（含半球）1.72，半径 0.32；原点在脚底，所以形状中心抬到半高
 	cap.height = 1.72
-	cap.radius = 0.32
+	cap.radius = BODY_RADIUS
 	shape.shape = cap
 	shape.position = Vector3(0.0, 0.86, 0.0)
 	add_child(shape)
@@ -321,6 +332,11 @@ func _physics_process(delta: float) -> void:
 		_apply_knock(delta)
 		return
 
+	# 剧情闪避：输入锁着也要动，所以排在 input_locked 之前
+	if _dodging:
+		_step_dodge(delta)
+		return
+
 	# 醒来期间：清掉操作意图，但保留重力与贴地
 	# （不要用 set_physics_process(false)，否则角色会卡在半空）
 	if input_locked:
@@ -456,10 +472,74 @@ func _apply_camera() -> void:
 
 # ---------------------------------------------------------------- 受击
 
+## 剧情闪避：锁输入期间也能把人往指定方向甩出去。
+##
+## 和 knock() 的区别：位移在固定时长内收住，不会一直滑到墙边；
+## 并且带一个明显的侧倾 + 微蹲，让「人扑了一下」在肩后机位里读得出来。
+## 位移仍然走 move_and_slide —— 补间直接改 position 会和物理抢位置。
+## seconds 是游戏内时间，慢动作下会被拉长，正好放大人扑出去的那一下。
+func dodge(offset: Vector3, seconds: float = 0.46) -> void:
+	if visual == null or offset.length_squared() < 0.0001:
+		return
+	_dodging = true
+	input_locked = true
+	_dodge_from = global_position
+	_dodge_to = _dodge_from + Vector3(offset.x, 0.0, offset.z)
+	_dodge_t = 0.0
+	_dodge_dur = maxf(0.08, seconds)
+	_walk_amount = 0.0
+	_was_airborne = false
+
+	# 侧倾方向按「扑向身体哪一侧」算。世界方向换到 visual 本地之后，
+	# X 分量就是左右；绕 Z 转负角才是往 +X 压，符号别写反。
+	var local := visual.global_transform.basis.inverse() * Vector3(offset.x, 0.0, offset.z).normalized()
+	_dodge_lean = -signf(local.x) * 0.40
+
+	# 一点离地，让侧扑不是「横向滑步」
+	velocity = Vector3(0.0, 2.4, 0.0)
+	if actor != null and actor.has_method("set_air_pose"):
+		actor.set_air_pose()
+
+
+func _step_dodge(delta: float) -> void:
+	_dodge_t = minf(_dodge_t + delta, _dodge_dur)
+	var k := _dodge_t / _dodge_dur
+	# smoothstep 让起步和收尾都不是匀速，落地不会像突然被按住
+	var target := _dodge_from.lerp(_dodge_to, smoothstep(0.0, 1.0, k))
+	velocity.x = (target.x - global_position.x) / delta
+	velocity.z = (target.z - global_position.z) / delta
+
+	if velocity.y > 0.0 or not is_on_floor():
+		velocity.y -= (_rise_gravity if velocity.y > 0.0 else _fall_gravity) * delta
+	else:
+		velocity.y = -0.1
+	move_and_slide()
+
+	# 重心压到最低时侧倾最大；结束必须归零，否则死亡躺姿会带着这个倾角
+	var arc := sin(k * PI)
+	visual.rotation.z = _dodge_lean * arc
+	visual.position.y = -0.09 * arc
+
+	if _dodge_t >= _dodge_dur:
+		_dodging = false
+		velocity.x = 0.0
+		velocity.z = 0.0
+		visual.rotation.z = 0.0
+		visual.position.y = 0.0
+
+
 ## 被外力撞飞：锁输入、按冲量飞出去，落地减速滑停。
 ## 不在这里做位移补间 —— 补间和 move_and_slide 抢位置会把角色塞进墙里，
 ## 交给物理走，撞到墙 / 路缘会自己停住。
 func knock(impulse: Vector3, seconds: float = 2.0) -> void:
+	# 闪避被撞飞打断时，把侧倾 / 微蹲一起收掉，不然会带着歪脖子飞出去。
+	# 只在闪避中写 visual —— 商店街那场车祸不走闪避路径，
+	# 必须保持改动前的行为，一帧都不要多碰。
+	if _dodging:
+		_dodging = false
+		if visual != null:
+			visual.rotation.z = 0.0
+			visual.position.y = 0.0
 	_knock_vel = impulse
 	_knocked = true
 	_knock_left = seconds
@@ -498,6 +578,9 @@ func reset_motion() -> void:
 	_knock_vel = Vector3.ZERO
 	_knocked = false
 	_knock_left = 0.0
+	var was_dodging := _dodging
+	_dodging = false
+	_dodge_t = 0.0
 	_walk_amount = 0.0
 	_walk_phase = 0.0
 	_was_airborne = false
@@ -505,6 +588,9 @@ func reset_motion() -> void:
 	control_inverted = false
 	if visual != null:
 		visual.position.y = 0.0
+		# 侧倾只有闪避会写；别在别的场景复位时顺手改一个它没碰过的通道
+		if was_dodging:
+			visual.rotation.z = 0.0
 	input_locked = false
 
 

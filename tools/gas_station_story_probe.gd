@@ -84,8 +84,16 @@ func _ready() -> void:
 	_check("缓冲后踏上国道触发撞车", story.crash_started())
 	_check("进入 CRASH", story.phase() == "crash")
 
+	# 车灯逼近时角色要有一个看得见的侧扑，而不是站着等撞。
+	await _until(func() -> bool: return story.dodged(), 6.0)
+	_check("撞车前角色做出了闪避", story.dodged())
+
 	await _until(func() -> bool: return story.death_started(), 8.0)
 	_check("货车真的撞上了（进入 DEATH）", story.death_started())
+	_check("闪避产生了可见的侧向位移", story.dodge_shift() > 0.35)
+	var clearance: float = story.impact_clearance()
+	_check("撞击时车头停在角色表面（无穿模）", clearance >= -0.02 and clearance <= 0.10)
+	_check("撞停后的货车有静态碰撞（死亡段走不进去）", story.crash_truck_solid())
 	_check("死亡段接管环境声", story.audio_override())
 	_check("死亡段不能回商店街", story.blocks_return())
 
