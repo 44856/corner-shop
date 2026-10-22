@@ -41,8 +41,9 @@ const WEST_EXIT_X := Town.X0 + 0.7
 const ARRIVE_FROM_GAS := Vector3(Town.X0 + 1.75, 0.17, 1.5)
 const GAS_STATION_SCENE := "res://scenes/gas_station.tscn"
 
-## 街道机位：比店内远一档，能同时看到人和两侧店招
-const CAM_OUT := {"dist": 4.9, "height": 1.58, "fov": 52.0, "shoulder": 0.30}
+## 街道机位：与加油站同一套肩后视角。开阔处 4.9m 会把人物拉远，
+## 收到 4.4m、支点降到胸口；窄处弹簧臂本来就会自己收短。
+const CAM_OUT := {"dist": 4.4, "height": 1.45, "fov": 52.0, "shoulder": 0.30}
 ## 店内机位：与 store_walk 完全一致（4.2×4.2m 的店塞不下长摇臂）
 const CAM_IN := {"dist": 1.6, "height": 1.55, "fov": 70.0, "shoulder": 0.28}
 
@@ -547,7 +548,7 @@ func _take_shots() -> void:
 
 	var specs := [
 		{"name": "street_a_spawn", "player": true, "pos": SPAWN, "face": -PI * 0.5,
-			"yaw": 90.0, "pitch": -0.10, "dist": 4.9, "height": 1.58, "fov": 52.0,
+			"yaw": 90.0, "pitch": -0.10, "dist": 4.4, "height": 1.45, "fov": 52.0,
 			"shoulder": 0.30, "exp": EXPOSE_OUT},
 		{"name": "street_b_gate", "free": Vector3(29.6, 5.6, 3.0),
 			"look": Vector3(14.0, 2.4, 2.2), "fov": 70.0, "exp": EXPOSE_OUT},

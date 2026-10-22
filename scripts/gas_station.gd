@@ -53,7 +53,9 @@ const SPAWN := Vector3(27.0, WALK_Y + 0.01, -1.05)
 const RETURN_X := 28.55
 const TOWN_SCENE := "res://scenes/hoshi_street.tscn"
 
-const CAM := {"dist": 5.4, "height": 1.62, "fov": 54.0, "shoulder": 0.30}
+## 开阔地没有墙替你把镜头顶近：5.4m 的远景会让人物缩在画面中央。
+## 收到 4.4m、支点降到胸口，保留街道的肩后视角，人物占比接近商店街。
+const CAM := {"dist": 4.4, "height": 1.45, "fov": 52.0, "shoulder": 0.30}
 
 var player: CharacterBody3D
 var hud
@@ -1011,7 +1013,7 @@ func _take_shots() -> void:
 
 	var specs := [
 		{"name": "gas_a_arrive", "player": true, "pos": SPAWN, "face": -PI * 0.5,
-			"yaw": 90.0, "pitch": -0.10, "dist": 5.4, "height": 1.62, "fov": 54.0, "shoulder": 0.30},
+			"yaw": 90.0, "pitch": -0.10, "dist": 4.4, "height": 1.45, "fov": 52.0, "shoulder": 0.30},
 		{"name": "gas_b_canopy", "free": Vector3(26.5, 4.2, 2.6),
 			"look": Vector3(16.0, 2.0, 9.0), "fov": 60.0},
 		{"name": "gas_c_pumps", "free": Vector3(16.0, 2.2, 13.4),
