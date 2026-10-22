@@ -8,6 +8,24 @@ const Store := preload("res://scripts/store.gd")
 
 static func build(root: Node3D) -> void:
 	var g := K.group(root, "Props")
+	_storefront(g)
+	_alley(g)
+
+
+## 便利店门前那一组（地垫 / 伞架 / 垃圾桶 / 招牌 / 自行车 / 地灯 / 猫）。
+## 新街区只想要这些、不想要后巷时走这个入口。
+static func storefront(root: Node3D) -> void:
+	var g := K.group(root, "StorefrontProps")
+	_storefront(g)
+
+
+## 后巷单独一组。便利店和新区街的店面可以各挂一份。
+static func alley(root: Node3D) -> void:
+	var g := K.group(root, "AlleyProps")
+	_alley(g)
+
+
+static func _storefront(g: Node3D) -> void:
 	_doormat(g)
 	_umbrella_stand(g)
 	_bins(g)
@@ -15,7 +33,23 @@ static func build(root: Node3D) -> void:
 	_bicycle(g, Vector3(-1.02, 0.16, 0.5), 62.0)
 	_store_lamp(g)
 	_cat(g)
-	_alley(g)
+
+
+# ---------------------------------------------------------------- 公开道具
+
+## 下面三个只是私有建造器的公开转发：新街区要摆第二台贩卖机、更多自行车、
+## 以及停车场里的轻自动车。复制一份视觉代码迟早会漂移，这里只多一层壳。
+
+static func vending(root: Node3D, pos: Vector3, rot_y: float) -> void:
+	_vending(root, pos, rot_y)
+
+
+static func bicycle(root: Node3D, pos: Vector3, rot_y: float) -> void:
+	_bicycle(root, pos, rot_y)
+
+
+static func kei_van(root: Node3D, pos: Vector3, rot_y: float) -> void:
+	_kei_van(root, pos, rot_y)
 
 
 static func _doormat(g: Node3D) -> void:

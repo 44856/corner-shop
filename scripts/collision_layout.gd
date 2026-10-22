@@ -23,9 +23,42 @@ static func build(root: Node3D) -> void:
 	g.name = "Collision"
 	root.add_child(g)
 	_ground(g)
-	_store(g)
+	store_collision(g)
 	_street(g)
 	_bounds(g)
+
+
+# ---------------------------------------------------------------- 公开入口
+
+## 便利店那组墙 / 货架 / 柜台的碰撞。新街区摆的是同一家店，尺寸要跟
+## store.gd 完全一致，所以直接复用，不再抄一遍。
+static func store_collision(root: Node3D) -> void:
+	_store(root)
+
+
+## 店内地面 + 门槛斜面。新街区的地面形状不同，但这两块仍然属于便利店。
+static func store_ground(root: Node3D) -> void:
+	# 店内地面：x −1.48..2.88，z −5.28..−1.12，顶面 0.25
+	_box(root, Vector3(0.7, 0.25 - 1.0, -3.2), Vector3(4.36, 2.0, 4.16))
+
+	# 店门槛：人行道 0.16 → 店内 0.25，9cm 的坎。人物没有自动上台阶，
+	# 不补这块斜面就会卡在门口。局部 +Z 是升高的方向，转到朝店里（−Z）。
+	_wedge(root, Vector3(0.355, 0.0, -1.02), 0.665, 0.16, WALK_Y, 0.25, 180.0)
+
+
+## 新区的地面 / 店面 / 杆件碰撞也走这一套原语。
+## 公开转发，避免新场景再写一份 _box / _wedge（楔形的顶点顺序很容易抄错）。
+static func solid(parent: Node3D, center: Vector3, size: Vector3, rot_y: float = 0.0) -> StaticBody3D:
+	return _box(parent, center, size, rot_y)
+
+
+static func pillar(parent: Node3D, center: Vector3, radius: float, height: float) -> StaticBody3D:
+	return _cylinder(parent, center, radius, height)
+
+
+static func slope(parent: Node3D, center: Vector3, half_w: float, half_d: float,
+		y_lo: float, y_hi: float, rot_y: float = 0.0) -> StaticBody3D:
+	return _wedge(parent, center, half_w, half_d, y_lo, y_hi, rot_y)
 
 
 # ---------------------------------------------------------------- 工具
@@ -87,12 +120,8 @@ static func _ground(g: Node3D) -> void:
 	# 外沿要把 0.17m 宽的路缘石一起包进来：路缘石是实心的可见几何，
 	# 碰撞只到 −1.9 / 1.9 的话，人站在路缘石上脚就埋进石头里了。
 	_box(g, Vector3(1.765, WALK_Y - 1.0, -1.765), Vector3(7.67, 2.0, 7.67))
-	# 店内地面：x −1.48..2.88，z −5.28..−1.12，顶面 0.25
-	_box(g, Vector3(0.7, 0.25 - 1.0, -3.2), Vector3(4.36, 2.0, 4.16))
 
-	# 店门槛：人行道 0.16 → 店内 0.25，9cm 的坎。人物没有自动上台阶，
-	# 不补这块斜面就会卡在门口。局部 +Z 是升高的方向，转到朝店里（−Z）。
-	_wedge(g, Vector3(0.355, 0.0, -1.02), 0.665, 0.16, WALK_Y, 0.25, 180.0)
+	store_ground(g)
 
 	# 路缘：人行道比马路高 16cm。两条临路的边各铺一条 25cm 宽的隐形坡，
 	# 不然走出人行道以后就回不来了。

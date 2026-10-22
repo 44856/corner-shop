@@ -10,6 +10,7 @@ const GLASS := preload("res://shaders/glass.gdshader")
 const PAVING := preload("res://shaders/paving.gdshader")
 const WET := preload("res://shaders/wet_glow.gdshader")
 const BEAM := preload("res://shaders/headlamp.gdshader")
+const UI_FONT := preload("res://scripts/ui_font.gd")
 
 static var _cache: Dictionary = {}
 static var _outline_cache: Dictionary = {}
@@ -396,6 +397,16 @@ static func label(parent: Node3D, text: String, pos: Vector3, height: float, col
 	l.rotation_degrees = rot
 	l.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	parent.add_child(l)
+	return l
+
+
+## 带中日文字形的标签。Label3D 默认吃引擎内置字体，日文/汉字会变成方块；
+## 招牌、暖帘、路牌一律走这个入口。
+static func label_cjk(parent: Node3D, text: String, pos: Vector3, height: float,
+		color: Color, rot: Vector3 = Vector3.ZERO, outline: int = 0,
+		glow_col: Color = Color(0, 0, 0)) -> Label3D:
+	var l := label(parent, text, pos, height, color, rot, outline, glow_col)
+	l.font = UI_FONT.get_font()
 	return l
 
 
