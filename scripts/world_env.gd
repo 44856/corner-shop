@@ -10,17 +10,23 @@ const RIPPLE_SHADER := preload("res://shaders/rain_ripple.gdshader")
 
 
 ## 返回 {"environment": Environment, "moon": DirectionalLight3D, "fill": DirectionalLight3D}
-static func build(root: Node3D) -> Dictionary:
-	var env := _environment(root)
+##
+## opts 是给新街区的可选项，不传时逐项等于旧场景参数：
+##   fog_length : float         体积雾长度（街区比 11.2m 底座长得多，32 不够）
+##   rain       : Dictionary   {center, half, amount, top_y, covers}
+##                              half 为 Vector2 时才启用矩形雨幕，否则仍是旧方形
+##   ripples    : Array        每个 {pos, size, strength, dry?, dry_min?, dry_max?}
+static func build(root: Node3D, opts: Dictionary = {}) -> Dictionary:
+	var env := _environment(root, opts)
 	var lights := _lights(root)
-	_rain(root)
-	_ripples(root)
+	_rain(root, opts.get("rain", {}))
+	_ripples(root, opts.get("ripples", []))
 	return {"environment": env, "moon": lights[0], "fill": lights[1]}
 
 
 # ---------------------------------------------------------------- 环境
 
-static func _environment(root: Node3D) -> Environment:
+static func _environment(root: Node3D, opts: Dictionary = {}) -> Environment:
 	var env := Environment.new()
 
 	var sky_mat := ProceduralSkyMaterial.new()
@@ -72,7 +78,7 @@ static func _environment(root: Node3D) -> Environment:
 	env.volumetric_fog_enabled = true
 	env.volumetric_fog_density = 0.008
 	env.volumetric_fog_albedo = Color(0.55, 0.62, 0.8)
-	env.volumetric_fog_length = 32.0
+	env.volumetric_fog_length = opts.get("fog_length", 32.0)
 	env.volumetric_fog_ambient_inject = 0.15
 	env.volumetric_fog_sky_affect = 0.0
 
@@ -115,21 +121,57 @@ static func _lights(root: Node3D) -> Array:
 
 # ---------------------------------------------------------------- 雨
 
-static func _rain(root: Node3D) -> void:
+## cfg 为空时完全保持旧行为：11.2m 方形雨幕 + 着色器里写死的表面高度表。
+## 新区把 half 填成正数之后切到矩形雨幕，并用 covers 告诉着色器
+## 「这条街有哪些能接雨的平层」（店招、雨棚、屋顶、阳台）。
+## covers 里每项 {x0, z0, x1, z1, h}，坐标是世界坐标，与雨幕范围一致。
+static func _rain(root: Node3D, cfg: Dictionary = {}) -> void:
 	var p := GPUParticles3D.new()
 	p.name = "Rain"
-	# 雨量：2400 → 1200，下落频率（= amount / lifetime）减半
-	p.amount = 1200
+	var center: Vector2 = cfg.get("center", Vector2.ZERO)
+	var half: Vector2 = cfg.get("half", Vector2.ZERO)
+	var top_y: float = cfg.get("top_y", 10.4)
+	# 雨量：2400 → 1200，下落频率（= amount / lifetime）减半。
+	# 矩形雨幕的面积变大时，调用方按面积比把 amount 提上去，密度才不变。
+	p.amount = cfg.get("amount", 1200)
 	p.lifetime = 2.4
 	p.preprocess = 2.2
 	p.fixed_fps = 60
-	p.visibility_aabb = AABB(Vector3(-7.5, -9.0, -7.5), Vector3(15.0, 20.0, 15.0))
+	if half.x > 0.0:
+		var span := Vector3(half.x * 2.0 + 2.0, top_y + 9.0, half.y * 2.0 + 2.0)
+		p.visibility_aabb = AABB(
+			Vector3(center.x - span.x * 0.5, -9.0, center.y - span.z * 0.5), span)
+	else:
+		p.visibility_aabb = AABB(Vector3(-7.5, -9.0, -7.5), Vector3(15.0, 20.0, 15.0))
 
 	# 自定义粒子着色器：按表面高度截断，雨点不会穿过雨棚与屋面
 	var pm := ShaderMaterial.new()
 	pm.shader = RAIN_SHADER
 	pm.set_shader_parameter("area_half", 5.5)
-	pm.set_shader_parameter("top_y", 10.4)
+	pm.set_shader_parameter("top_y", top_y)
+	pm.set_shader_parameter("rect_center", center)
+	pm.set_shader_parameter("rect_half", half)
+
+	var covers: Array = cfg.get("covers", [])
+	if not covers.is_empty():
+		# 着色器数组长度固定 32，短了会报参数长度不匹配；
+		# 没用到的槽填零，cover_count 负责截断。
+		var n: int = mini(covers.size(), 32)
+		var rects: Array = []
+		var heights := PackedFloat32Array()
+		rects.resize(32)
+		heights.resize(32)
+		for i in 32:
+			rects[i] = Vector4.ZERO
+			heights[i] = 0.0
+		for i in n:
+			var c: Dictionary = covers[i]
+			rects[i] = Vector4(c["x0"], c["z0"], c["x1"], c["z1"])
+			heights[i] = c["h"]
+		pm.set_shader_parameter("cover_count", n)
+		pm.set_shader_parameter("covers", rects)
+		pm.set_shader_parameter("cover_h", heights)
+
 	p.process_material = pm
 
 	var quad := QuadMesh.new()
@@ -149,19 +191,22 @@ static func _rain(root: Node3D) -> void:
 	root.add_child(p)
 
 
-static func _ripples(root: Node3D) -> void:
-	var surfaces := [
+## surfaces 为空时用旧场景的 4 块水面（马路 / 店前步道 / 后巷 / 店面屋顶）。
+## 新街区传自己的表面表：整条街的路面、两侧人行道、各店雨棚。
+static func _ripples(root: Node3D, surfaces: Array = []) -> void:
+	var defaults := [
 		{"pos": Vector3(0.0, 0.007, 0.0), "size": Vector2(11.2, 11.2), "strength": 0.36, "dry": false},
 		{"pos": Vector3(1.85, 0.168, 0.5), "size": Vector2(7.5, 2.8), "strength": 0.26, "dry": true},
 		{"pos": Vector3(4.83, 0.196, -3.2), "size": Vector2(1.06, 4.5), "strength": 0.24, "dry": false},
 		{"pos": Vector3(1.3, 3.712, -3.2), "size": Vector2(6.0, 4.6), "strength": 0.3, "dry": false},
 	]
+	var list: Array = surfaces if not surfaces.is_empty() else defaults
 
 	var grp := Node3D.new()
 	grp.name = "RainRipples"
 	root.add_child(grp)
 
-	for s in surfaces:
+	for s in list:
 		var mi := MeshInstance3D.new()
 		var pm := PlaneMesh.new()
 		pm.size = s["size"]
@@ -172,8 +217,8 @@ static func _ripples(root: Node3D) -> void:
 		var mat := ShaderMaterial.new()
 		mat.shader = RIPPLE_SHADER
 		mat.set_shader_parameter("strength", s["strength"])
-		if s["dry"]:
-			mat.set_shader_parameter("dry_min", Vector2(-1.76, -0.96))
-			mat.set_shader_parameter("dry_max", Vector2(4.36, 0.2))
+		if s.get("dry", false):
+			mat.set_shader_parameter("dry_min", s.get("dry_min", Vector2(-1.76, -0.96)))
+			mat.set_shader_parameter("dry_max", s.get("dry_max", Vector2(4.36, 0.2)))
 		mi.material_override = mat
 		grp.add_child(mi)

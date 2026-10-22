@@ -1,14 +1,18 @@
 # 雨夜便利店街角 / Rainy Corner Mart
 
-一个用 Godot 4.7 程序化搭建的「雨夜日式便利店街角」微缩场景。全部几何体、材质、灯光与雨效均由 GDScript 在运行时生成，没有外部模型或贴图依赖。
+一个用 Godot 4.7 程序化搭建的「雨夜日式便利店街角」微缩场景，以及从它延伸出去的 35.6m 日式商店街。全部几何体、材质、灯光与雨效均由 GDScript 在运行时生成，没有外部模型或贴图依赖。
 
-场景有两种看法：
+场景有几种看法：
 
 | 版本 | 场景 | 玩法 |
 | --- | --- | --- |
-| **可玩版**（当前入口） | `scenes/store_walk.tscn` | 第三人称走进便利店：自动门、店内交互、跟随镜头；进过店再下马路会被货车撞 |
+| **可玩版**（默认入口） | `scenes/store_walk.tscn` | 第三人称走进便利店：自动门、店内交互、跟随镜头；进过店再下马路会被货车撞 |
+| **商店街可玩版**（扩展） | `scenes/hoshi_street.tscn` | 35.6m 日式商店街：出生在东口牌楼内侧、面朝西；两排店面 / 候车亭 / 斑马线，沿街走到西端进同一家便利店 |
 | 微缩展示版 | `scenes/main.tscn` | 轨道相机俯瞰整个 11.2m 底座，原版编排 |
 | 编排备份 | `scenes/diorama_orbit.tscn` | 改造前编排的冻结副本（见「备份」一节） |
+
+两个可玩场景共用 `kit / store / props / hud / interaction_hub / player_controller`。
+`hoshi_street` 只新增街道层，`store_walk` 的编排与探针不受影响。
 
 ![preview](preview.png)
 
@@ -30,6 +34,7 @@ GODOT_BIN=/path/to/godot ./tools/run.sh
 
 ```bash
 ./tools/run.sh grassland                    # 简写，自动补 res://scenes/ 与 .tscn
+./tools/run.sh hoshi_street                 # 日式商店街（新街区）
 ./tools/run.sh opening_flow                 # 原来的开场流程（雨夜三幕 → 草原）
 ./tools/run.sh --editor store_walk          # 在编辑器里打开该场景
 ./tools/run.sh --headless walk_probe        # 无窗口跑回归
@@ -61,7 +66,7 @@ GODOT_BIN=/path/to/godot ./tools/run.sh
 | `空格` | 跳 |
 | 鼠标移动 | 转视角（第三人称弹簧臂） |
 | 鼠标滚轮 | —— 预留，当前固定机位距离 |
-| `E` / `F` | 与冷柜 / 货架 / 服务铃 / 猫互动 |
+| `E` / `F` | 与附近目标互动（冷柜 / 货架 / 服务铃 / 猫；街区的暖帘 / 菜牌 / 候车亭 / 店面） |
 | `Esc` | 释放鼠标（点回窗口重新锁定） |
 
 **自动门**不需要按键：走到门前 2.35m 自动滑开，离开 0.45 秒后自动关闭；
@@ -72,6 +77,12 @@ GODOT_BIN=/path/to/godot ./tools/run.sh
 
 **车祸事件**：先进店，再走出门、下到马路上（南侧车行道），右侧会驶来一辆
 大货车。这是一次性的演出，撞完人会回到出生点，之后在马路上走就安全了。
+
+**商店街**（`hoshi_street`）：出生在东口牌楼内侧的北人行道上，面朝西。街区
+35.6 × 15.2m：北侧从西到东是便利店 / 拉面 / 居酒屋 / 投币洗衣 / 烟店 / 公寓 / 交番，
+南侧是住宅 / 钱汤 / 喫茶店 / 洗衣店 / 诊所 / 口袋公园；中间是 2.9m 车道，带斑马线和
+候车亭。沿街可以掀暖帘、买罐装咖啡、看洗衣机、查末班车；一直往西走，尽头还是
+同一家 HOSHI MART。东口外只做了视觉背景楼，没有可走区域，边界围栏把人留在街上。
 
 ## 备份：改造前的编排
 
@@ -92,12 +103,17 @@ GODOT_BIN=/path/to/godot ./tools/run.sh
 
 ```
 scenes/store_walk.tscn  可玩版入口（第三人称 + 交互）
+scenes/hoshi_street.tscn 商店街可玩版（35.6m 双排街区）
 scenes/main.tscn        微缩展示版（只挂 main.gd）
 scenes/diorama_orbit.tscn 编排备份（冻结副本）
 scenes/opening_flow.tscn  原开场流程（雨夜三幕 → 草原）
 scenes/grassland.tscn   异世界草原
 
 scripts/store_walk.gd   可玩版编排：装配世界 / 玩家 / 门 / HUD / 交互 / 开场推镜 / 截图模式
+scripts/hoshi_street.gd 商店街编排：世界装配 / 出生点 / 开场推镜 / 区域判定 / 交互 / 截图
+scripts/town.gd         街道层：底座 / 地面 / 标线 / 排水 / 电线杆 / 路灯 / 东口牌楼 / 街具 / 背景楼
+scripts/shop_row.gd     两排日式店面：拉面 / 居酒屋 / 洗衣 / 烟店 / 公寓 / 交番 / 住宅 / 钱汤 / 喫茶…
+scripts/town_collision.gd 街区碰撞层：地面 / 路缘斜面 / 店面 / 巷道 / 街具 / 边界
 scripts/truck.gd        大货车造型（6.2m 厢式，底盘/厢体/驾驶室/车轮四层细节 + 车灯光柱）
 scripts/truck_event.gd  车祸事件：触发条件 / 冲刺 / 命中 / 收黑 / 复位
 scripts/world_env.gd    环境、月光、雨、涟漪（从 main.gd 抽出，参数逐项照搬）
@@ -122,7 +138,8 @@ tools/_godot.sh         引擎探测（被上面两个脚本 source）
 tools/setup_lfs.sh      git-lfs 环境检查与历史迁移
 tools/walk_probe.tscn   便利店行走回归（14 条断言，见「自测」）
 tools/truck_probe.tscn  车祸事件回归（17 条断言，见「自测」）
-tools/grassland_probe.tscn 草原交互回归（30 条断言）
+tools/street_probe.tscn 商店街回归（17 条断言，见「自测」）
+tools/grassland_probe.tscn 草原交互回归（41 条断言）
 ```
 
 ## 交互实现要点
@@ -175,13 +192,14 @@ tools/grassland_probe.tscn 草原交互回归（30 条断言）
 ./tools/check.sh
 ```
 
-跑 `tools/` 下全部 `*_probe.tscn`，一个场景一行结果，最后给总判定。现在有三组：
+跑 `tools/` 下全部 `*_probe.tscn`，一个场景一行结果，最后给总判定。现在有四组：
 
 | probe | 断言 | 测什么 |
 | --- | --- | --- |
 | `walk_probe` | 14 | 走进店门 → 东侧过道 → 冷柜 → 退出门 → 爬回路缘；门是否打开、是否跨过门槛、是否踩上 0.25m 地板、提示文案、服务铃店内亮 / 隔墙不亮、挤不进休息室、离开后关门 |
 | `truck_probe` | 17 | 车祸事件：触发条件、冲刺速度、命中判定、慢镜头、收黑复位、不重复触发、车出台面后回收 |
-| `grassland_probe` | 30 | 狗与两个守卫的交互、提示出/收、区域标签、对话全流程、守卫站姿与脚底贴地 |
+| `street_probe` | 17 | 商店街：出生点在东口、沿街往西可走、两排店面挡得住、上下 16cm 路缘、斑马线过街、拉面店 / 候车亭交互、从新街区走进同一家便利店 |
+| `grassland_probe` | 41 | 狗与两个守卫的交互、提示出/收、区域标签、对话全流程、守卫站姿与脚底贴地 |
 
 判定失败的条件有三条：probe 退出码非 0、输出里有 `SCRIPT ERROR` / `Parse Error`、
 probe 自己打印的 `failed` 计数非 0。**只靠退出码会漏**，因为 Godot 打包脚本错误时经常照样返回 0。
@@ -191,6 +209,7 @@ probe 自己打印的 `failed` 计数非 0。**只靠退出码会漏**，因为 
 ```bash
 ./tools/run.sh --headless walk_probe
 ./tools/run.sh --headless truck_probe   # 无渲染，只走车祸事件状态机
+./tools/run.sh --headless street_probe  # 无渲染，只走商店街移动 / 碰撞 / 交互
 ```
 
 新增 probe 只要命名成 `tools/xxx_probe.tscn` 就会被自动纳入，不用改脚本，也不用改 CI。
@@ -201,6 +220,7 @@ probe 自己打印的 `failed` 计数非 0。**只靠退出码会漏**，因为 
 - **夜景层次**：冷蓝月光 + 店内暖光 + 招牌/灯箱自发光 + 粉紫霓虹（后巷 BAR），配合泛光（glow）与湿地面光池，形成冷—暖—霓虹三层色彩关系。
 - **微缩模型感**：11.2 × 11.2 正方形底座，深色石材台座 + 黄铜腰线 + 正面铭牌；展示版相机 40° 长焦、低俯角，Forward+ 下附带轻微景深（移轴感）。
 - **雨**：`rain_particles.gdshader` 自己算雨滴下落，每帧按 xz 采样「该列最高的可接雨表面」（马路 0.0 / 人行道 0.16 / 后巷 0.19 / 雨棚 2.66 / 屋面 3.71），落到面上就回收重发——雨丝不会穿过雨棚和屋顶继续往下掉。面片挂在粒子位置上方，触面时刚好收在地表。面片尺寸 5.5mm × 150mm —— 长宽各减半，可见面积是初版的 1/4；粒子数 1200（初版 2400），下落频率同步减半。
+  商店街 35.6m 长，粒子范围改成矩形（`center` + `half`），遮雨面从「写死的表面表」换成最多 32 个 `vec4(x0,z0,x1,z1)+h` 槽位，由 `Town.rain_covers()` 与 `ShopRow.rain_covers()` 填。旧场景不传矩形参数时仍走原来的表面表，行为不变。
 - **涟漪**：`rain_ripple.gdshader` 按世界坐标切网格、每格随机相位画扩散圆环，铺在马路、门前人行道、后巷与屋面上；加色混合 + 关闭深度写入，不和标线、光池打架；雨棚正下方用 `dry_min/dry_max` 裁掉，保持干燥。
 - **车灯光柱**：`headlamp.gdshader` 用一个无盖锥筒 + 加色混合假装体积光。锥壳上每个片元都贴着锥面，用「离轴距离」算衰减会恒等于 0，所以改用 `|N·V|`：视线正对着的那一侧最厚、轮廓边缘最薄，看起来才像一束光而不是一块半透明的三角板。锥筒不带端盖 —— 带盖的话正对车头时远端那张圆盘会像一块悬空的发光板。地面上的亮斑是另一块椭圆面片（同一个着色器，`pool = true`），光柱只负责空气里的部分。
 
@@ -209,8 +229,14 @@ probe 自己打印的 `failed` 计数非 0。**只靠退出码会漏**，因为 
 - 配色：各 builder 里的 `Color("#...")`；全局明暗在 `kit.gd` 的 `toon()` 默认参数（`shade` / `rim` / `line`）。
 - 灯光：`world_env.gd` 的月光/补光、`store.gd` 的 `_interior()`（店内暖光）、`street.gd` 的 `_lamp()`（路灯）。
 - 曝光与调色：`world_env.gd` 的 `_environment()`；店内曝光在 `store_walk.gd` 的 `EXPOSE_IN`。
+  商店街的街外 / 店内曝光在 `hoshi_street.gd` 的 `EXPOSE_OUT` / `EXPOSE_IN`。
 - 机位：`store_walk.gd` 的 `CAM_OUT` / `CAM_IN`（距离 / 支点高度 / FOV / 肩部偏移）；
   展示版的初始机位在 `main.gd` 顶部的 `yaw` / `pitch` / `dist` / `target`。
+- 商店街：`hoshi_street.gd` 的 `SPAWN` / `CAM_OUT` / `CAM_IN` / `INTRO_FROM_POS` / `INTRO_LOOK`；
+  街道尺寸、路缘和牌楼在 `town.gd` 顶部常量（`town_collision.gd` 直接引用），
+  两排店面的位置与高度在 `shop_row.gd` 的 `NORTH` / `SOUTH` / `AWNINGS`。
+- 商店街的雨棚：新增或挪动雨棚要同步 `shop_row.gd` 的 `rain_covers()` / `ripples()`，
+  否则雨会穿过雨棚继续下，涟漪也会出现在干燥的棚下。
 - 门的感应范围与关门迟疑：`autodoor.gd` 的 `open_radius` / `close_grace`。
 - 店内布局：`store.gd` 的 `layout(walkable)`（改完记得跑一遍 `walk_probe`）。
 - 交互点与文案：`store_walk.gd` 的 `_setup_interactions()` 与 `_on_*` 回调。
@@ -233,6 +259,10 @@ probe 自己打印的 `failed` 计数非 0。**只靠退出码会漏**，因为 
 
 # 只拍一张（调机位时用，省得全套跑一遍）：
 ./tools/run.sh store_walk -- --shot --only=walk_h_breakroom
+
+# 商店街：7 张（出生点 / 东口牌楼 / 北排店面 / 南排住宅 / 便利店全景 / 牌楼西望 / 店内）→ shots/street_*.png
+./tools/run.sh hoshi_street -- --shot
+./tools/run.sh hoshi_street -- --shot --only=street_b_gate
 
 # 微缩展示版：7 个轨道机位 → shots/a_front.png 等
 ./tools/run.sh main -- --shot
