@@ -125,7 +125,7 @@ scenes/hoshi_street.tscn 商店街可玩版（35.6m 双排街区）
 scenes/gas_station.tscn 加油站剧情版（雨夜服务区 → 逢魔时 → 车祸 → 草原）
 scenes/main.tscn        微缩展示版（只挂 main.gd）
 scenes/diorama_orbit.tscn 编排备份（冻结副本）
-scenes/opening_flow.tscn  原开场流程（雨夜三幕 → 草原）
+scenes/opening_flow.tscn  原开场流程（雨夜三幕 → 字母屏 → 草原，走 SceneRouter）
 scenes/grassland.tscn   异世界草原
 
 scripts/store_walk.gd   可玩版编排：装配世界 / 玩家 / 门 / HUD / 交互 / 开场推镜 / 截图模式
@@ -150,6 +150,10 @@ scripts/store.gd        便利店：外壳 / 玻璃立面 / 自动门位 / 雨�
 scripts/street.gd       底座 / 人行道 / 马路 / 标线 / 电线杆 / 路灯 / 街角设施 / 湿地面光池
 scripts/props.gd        道具：贩卖机 / 自行车 / 伞架 / 垃圾桶 / 后巷 / 猫
 scripts/kit.gd          建模工具库：体块、圆柱、管线、拉杆、文字、材质缓存
+scripts/core/game_state.gd  跨场景剧情节点与 flag（纯数据，不持有节点）
+scripts/core/world_links.gd 场景登记与出口路由表（纯数据：哪个出口在哪个剧情节点通向哪）
+scripts/core/scene_router.gd 场景切换唯一入口：查路由 / 到达上下文 / 转场生命周期
+scripts/core/portal_host.gd 场景本地出口：走路触发盒 + E 提示，按路由启停
 scripts/backup/diorama_orbit.gd 改造前编排的冻结副本
 scripts/dialogue/       对话解析与播放（草原用）
 shaders/                三渲二 / 描边 / 砖缝 / 玻璃 / 自发光 / 湿光 / 车灯光束 / 雨 / 涟漪 / 死亡面纱
@@ -216,7 +220,7 @@ tools/gas_station_story_probe.tscn 加油站剧情回归（30 条断言）
 ./tools/check.sh
 ```
 
-跑 `tools/` 下全部 `*_probe.tscn`，一个场景一行结果，最后给总判定。现在有八组：
+跑 `tools/` 下全部 `*_probe.tscn`，一个场景一行结果，最后给总判定。现在有九组：
 
 | probe | 断言 | 测什么 |
 | --- | --- | --- |
@@ -224,10 +228,11 @@ tools/gas_station_story_probe.tscn 加油站剧情回归（30 条断言）
 | `truck_probe` | 17 | 车祸事件：触发条件、冲刺速度、命中判定、慢镜头、收黑复位、不重复触发、车出台面后回收 |
 | `street_probe` | 17 | 商店街：出生点在东口、沿街往西可走、两排店面挡得住、上下 16cm 路缘、斑马线过街、拉面店 / 候车亭交互、从新街区走进同一家便利店 |
 | `grassland_probe` | 41 | 狗与两个守卫的交互、提示出/收、区域标签、对话全流程、守卫站姿与脚底贴地 |
-| `gas_station_probe` | 13 | 加油机岛台与小卖亭挡人、16cm 路缘、顶棚区域、柜台隔窗提示、转场锁 |
-| `gas_station_story_probe` | 30 | 收音机 / 司机 / 擦身车三颗子弹、逢魔时、道具撤场、回程锁定、撞车锁输入且无侧向位移、驾驶室贴近角色（约 0.1m）、死亡段保持锁输入、撞击后不倒地、死亡接管环境声、终态 DONE |
+| `gas_station_probe` | 16 | 加油机岛台与小卖亭挡人、16cm 路缘、顶棚区域、柜台隔窗提示、到达上下文清空、转场锁（含出口停用） |
+| `gas_station_story_probe` | 31 | 收音机 / 司机 / 擦身车三颗子弹、逢魔时、道具撤场、路牌提示消失、撞车锁输入且无侧向位移、驾驶室贴近角色（约 0.1m）、死亡段保持锁输入、撞击后不倒地、死亡接管环境声、终态 DONE |
 | `prop_collision_probe` | 12 | 商店街街具与便利店门前道具的碰撞足迹 |
 | `transition_probe` | 7 | 字母转场：层级、字母拆分、进度、自毁 |
+| `router_probe` | 79 | 场景路由纯数据：默认路由 / 剧情节点覆盖 / 禁用理由、同一出口改指向、`*` 通配、`set_story_node` 合法性、本地 PORTALS 与中央 ROUTES 一一对应、GameState 与 SceneRouter 到达上下文 |
 
 判定失败的条件有三条：probe 退出码非 0、输出里有 `SCRIPT ERROR` / `Parse Error`、
 probe 自己打印的 `failed` 计数非 0。**只靠退出码会漏**，因为 Godot 打包脚本错误时经常照样返回 0。

@@ -21,9 +21,6 @@ const PlayerController := preload("res://scripts/player_controller.gd")
 const CollisionLayout := preload("res://scripts/collision_layout.gd")
 const StoryVeil := preload("res://scripts/story_veil.gd")
 const Sfx := preload("res://scripts/sfx.gd")
-const LetterTransition := preload("res://scripts/letter_transition.gd")
-
-const GRASSLAND_SCENE := "res://scenes/grassland.tscn"
 
 ## 裁剪盒要罩住整条国道：车从 x = −9 开进来，默认的 11.2m 底座会把它整块 discard。
 const STATION_CLIP := AABB(Vector3(-45.0, -6.0, -24.0), Vector3(110.0, 44.0, 70.0))
@@ -346,6 +343,9 @@ func _begin_dusk() -> void:
 	if _phase != Phase.WALK:
 		return
 	_phase = Phase.DUSK
+	# 从这一刻起「回商店街」整条出口作废。交给路由表判断，
+	# 而不是让每个触发点各自去问 story.return_allowed()——漏问一次就会穿帮。
+	GameState.set_story_node(&"ep2_dusk")
 	_dusk_pending = true
 	hub.enabled = false
 	player.input_locked = true
@@ -670,19 +670,21 @@ func _finish() -> void:
 
 	if not transition_enabled:
 		return
-	var root := get_tree().root
-	# 草原醒来时读这个标记；读完就删，不能让它影响正常进草原。
-	root.set_meta("from_gas_station_story", true)
-	if root.has_node("LetterTransition"):
-		return
-	var tr := LetterTransition.new()
-	tr.name = "LetterTransition"
-	tr.title_text = "ISEKAI"
-	tr.subtitle_text = "GRASSLAND"
-	tr.footer_text = "SOMEWHERE · 06:12"
-	tr.accent = Color("#ffd39a")
-	root.add_child(tr)
-	tr.play(GRASSLAND_SCENE)
+	# 「死」进草原是剧情强制转场，不走出口路由；目的地与到达方式仍归 SceneRouter 管，
+	# 这样草原只需要看 arrival 的 mode 就知道该不该播那一段苏醒独白。
+	var started := SceneRouter.goto(&"grassland", &"default", {
+		"mode": &"story",
+		"set_story_node": &"ep3_grassland",
+		"transition": {
+			"style": "letter",
+			"title": "ISEKAI",
+			"subtitle": "GRASSLAND",
+			"footer": "SOMEWHERE · 06:12",
+			"accent": Color("#ffd39a"),
+		},
+	})
+	if not started:
+		push_warning("GasStationStory: 草地转场未能启动")
 
 
 ## 转场锁：被别人切走时停下所有计时，别让一段 await 回来继续解锁输入。
