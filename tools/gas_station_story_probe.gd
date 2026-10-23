@@ -83,22 +83,27 @@ func _ready() -> void:
 	await _frames(4)
 	_check("缓冲后踏上国道触发撞车", story.crash_started())
 	_check("进入 CRASH", story.phase() == "crash")
+	_check("撞车触发瞬间禁用操作输入", bool(player.input_locked))
 
-	# 车灯逼近时角色要有一个看得见的侧扑，而不是站着等撞。
-	await _until(func() -> bool: return story.dodged(), 6.0)
-	_check("撞车前角色做出了闪避", story.dodged())
+	# 车灯逼近时角色应当钉在原地：没有侧扑，也没有任何横向位移。
+	var z0: float = player.global_position.z
+	await get_tree().create_timer(0.5).timeout
+	_check("撞车过程中角色没有侧向位移", absf(player.global_position.z - z0) < 0.02)
 
 	await _until(func() -> bool: return story.death_started(), 8.0)
 	_check("货车真的撞上了（进入 DEATH）", story.death_started())
-	_check("闪避产生了可见的侧向位移", story.dodge_shift() > 0.35)
+	# 驾驶室前脸距躯干前缘约 0.10m：比按胶囊半径算的近约 0.3m，但不会切进身体。
 	var clearance: float = story.impact_clearance()
-	_check("撞击时车头停在角色表面（无穿模）", clearance >= -0.02 and clearance <= 0.10)
-	_check("撞停后的货车有静态碰撞（死亡段走不进去）", story.crash_truck_solid())
+	_check("撞击时驾驶室贴近角色（可见间隙约 0.1m）", clearance >= 0.07 and clearance <= 0.13)
+	# 死亡段第一段等待（0.95s / speed）过后仍然不能操作。
+	await _frames(12)
+	_check("死亡段仍然禁用操作输入", bool(player.input_locked))
 	_check("死亡段接管环境声", story.audio_override())
 	_check("死亡段不能回商店街", story.blocks_return())
 
 	await _until(func() -> bool: return story.finished(), 12.0)
 	_check("死亡演出走完", story.finished())
+	_check("撞击后人物没有倒地", absf(player.actor.rotation_degrees.x) < 1.0)
 	_check("终态是 DONE", story.phase() == "done")
 	_check("探针没有真的切走场景", get_tree().current_scene == null or get_tree().current_scene.name != "Grassland")
 
