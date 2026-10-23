@@ -54,6 +54,8 @@ var _emitters: Dictionary = {}       # instance_id -> {ref, player, streams, pen
 # ---- 命名声道
 var _channels: Dictionary = {}       # StringName -> AudioVoice
 var _channel_meta: Dictionary = {}   # StringName -> {player, source, ...}
+# owner instance_id -> {ref, cb, channels}；一个 owner 只连一条 tree_exiting
+var _owner_bindings: Dictionary = {}
 
 var _bus_tweens: Dictionary = {}     # bus -> Tween
 
@@ -269,8 +271,6 @@ func channel(id: StringName, stream: AudioStream, opts: Dictionary = {}) -> Audi
 		"pitch": pitch,
 		"bus": bus,
 		"owner_id": 0,
-		"owner_ref": null,
-		"owner_cb": null,
 		"releasing": false,
 		"follow_ref": null,
 		"created": Time.get_ticks_msec(),
@@ -658,38 +658,70 @@ func _update_channel_pos(meta: Dictionary, pos, follow) -> void:
 		(player as Node3D).global_position = pos
 
 
-## 场景根离开时声道跟着淡出。回调里带 channel_id：
-## 同一场景往往有好几个声道（雨、广播…），只绑 owner_id 的话回调完全相同，
-## 第二个声道 connect 时会报「already connected」，而且没法区分该停哪个。
+## 场景根离开时声道跟着淡出。
+##
+## 一个 owner 只连一条 tree_exiting：Godot 判断「重复连接」时不比较 bind 参数，
+## 同一场景的第二个声道（雨、低频…）再连同一个方法就会报 already connected，
+## 卸载时也只会收掉其中一条。所以回调按 owner_id 收拢，由这里查它名下的所有声道。
 func _bind_owner(meta: Dictionary, owner_node: Node, channel_id: StringName) -> void:
 	var new_id := owner_node.get_instance_id() if owner_node != null else 0
-	if int(meta.get("owner_id", 0)) == new_id:
+	var old_id := int(meta.get("owner_id", 0))
+	if old_id == new_id:
 		return
-	var old_ref: WeakRef = meta.get("owner_ref")
-	var old_owner = old_ref.get_ref() if old_ref != null else null
-	var old_cb = meta.get("owner_cb")
-	if old_owner != null and old_cb != null and old_owner.tree_exiting.is_connected(old_cb):
-		old_owner.tree_exiting.disconnect(old_cb)
+	if old_id != 0:
+		_release_owner_channel(old_id, channel_id)
 	meta["owner_id"] = new_id
-	meta["owner_ref"] = weakref(owner_node) if owner_node != null else null
-	if owner_node == null:
-		meta["owner_cb"] = null
-		return
-	var cb := _on_owner_exiting.bind(new_id, channel_id)
-	meta["owner_cb"] = cb
-	owner_node.tree_exiting.connect(cb)
+	if owner_node != null:
+		_retain_owner_channel(owner_node, new_id, channel_id)
 
 
-func _on_owner_exiting(owner_id: int, channel_id: StringName) -> void:
-	var meta: Dictionary = _channel_meta.get(channel_id, {})
-	if meta.is_empty() or int(meta.get("owner_id", 0)) != owner_id:
+func _retain_owner_channel(owner_node: Node, owner_id: int, channel_id: StringName) -> void:
+	var entry: Dictionary = _owner_bindings.get(owner_id, {})
+	if entry.is_empty():
+		var cb := _on_owner_exiting.bind(owner_id)
+		entry = {"ref": weakref(owner_node), "cb": cb, "channels": {}}
+		_owner_bindings[owner_id] = entry
+		owner_node.tree_exiting.connect(cb)
+	entry["channels"][channel_id] = true
+
+
+func _release_owner_channel(owner_id: int, channel_id: StringName) -> void:
+	var entry: Dictionary = _owner_bindings.get(owner_id, {})
+	if entry.is_empty():
 		return
-	if bool(meta.get("releasing")):
+	var channels: Dictionary = entry["channels"]
+	channels.erase(channel_id)
+	if not channels.is_empty():
 		return
-	meta["releasing"] = true
-	var voice: AudioVoice = _channels.get(channel_id)
-	if voice != null:
-		voice.stop(DEFAULT_FADE)
+	var ref: WeakRef = entry.get("ref")
+	var owner_node = ref.get_ref() if ref != null else null
+	var cb = entry.get("cb")
+	if owner_node != null and cb != null and owner_node.tree_exiting.is_connected(cb):
+		owner_node.tree_exiting.disconnect(cb)
+	_owner_bindings.erase(owner_id)
+
+
+func _on_owner_exiting(owner_id: int) -> void:
+	var entry: Dictionary = _owner_bindings.get(owner_id, {})
+	if entry.is_empty():
+		return
+	var channels: Dictionary = entry["channels"]
+	var ref: WeakRef = entry.get("ref")
+	var owner_node = ref.get_ref() if ref != null else null
+	var cb = entry.get("cb")
+	if owner_node != null and cb != null and owner_node.tree_exiting.is_connected(cb):
+		owner_node.tree_exiting.disconnect(cb)
+	_owner_bindings.erase(owner_id)
+	for channel_id in channels:
+		var meta: Dictionary = _channel_meta.get(channel_id, {})
+		if meta.is_empty() or int(meta.get("owner_id", 0)) != owner_id:
+			continue
+		if bool(meta.get("releasing")):
+			continue
+		meta["releasing"] = true
+		var voice: AudioVoice = _channels.get(channel_id)
+		if voice != null:
+			voice.stop(DEFAULT_FADE)
 
 
 func _update_followers() -> void:
@@ -734,13 +766,9 @@ func _prune_channels() -> void:
 
 func _drop_channel(id: StringName) -> void:
 	var meta: Dictionary = _channel_meta.get(id, {})
-	# 主动断开 owner 信号。不然同一场景再建同名声道时，
-	# 相同 owner_id + 相同频道名会生成完全相同的 Callable，connect 会报重复。
-	var owner_ref: WeakRef = meta.get("owner_ref")
-	var owner_node = owner_ref.get_ref() if owner_ref != null else null
-	var owner_cb = meta.get("owner_cb")
-	if owner_node != null and owner_cb != null and owner_node.tree_exiting.is_connected(owner_cb):
-		owner_node.tree_exiting.disconnect(owner_cb)
+	var owner_id := int(meta.get("owner_id", 0))
+	if owner_id != 0:
+		_release_owner_channel(owner_id, id)
 	var voice: AudioVoice = _channels.get(id)
 	if voice != null:
 		voice.cancel_fade()

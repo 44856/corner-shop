@@ -72,8 +72,10 @@ func _run() -> void:
 
 	var high = bus.play_2d(Sfx.tap(), {"db": -40.0, "priority": 10})
 	_check("抢占请求先返回空句柄（晚一帧补播）", high == null)
+	# 槽位由音频线程释放，多久空出来和帧率无关；10 帧在负载高时偶发不够。
+	# 60 帧只是「永远补不上」的兜底，不是延迟指标。
 	var waited := 0
-	while bus.active_2d_voices() < bus.polyphony_2d() and waited < 10:
+	while bus.active_2d_voices() < bus.polyphony_2d() and waited < 60:
 		await get_tree().process_frame
 		waited += 1
 	_check("高优先级抢占后补播成功（%d 帧）" % waited,
@@ -152,13 +154,19 @@ func _run() -> void:
 	owner_node.name = "ProbeOwner"
 	add_child(owner_node)
 	bus.channel(&"probe_owned", Sfx.tap(), {"owner": owner_node, "db": -20.0})
+	# 同一 owner 的第二条声道：钉住「tree_exiting 只连一条、按 owner 收拢」的实现。
+	# 之前两条各 bind 一次，Godot 不比较 bind 参数，第二条会静默不连、卸载时漏收。
+	bus.channel(&"probe_owned_2", Sfx.bell(), {"owner": owner_node, "db": -24.0})
 	await get_tree().process_frame
 	_check("绑定 owner 的声道在播", bus.is_channel_playing(&"probe_owned"))
+	_check("同一 owner 的第二条声道也在播", bus.is_channel_playing(&"probe_owned_2"))
 	owner_node.queue_free()
 	await get_tree().create_timer(0.8).timeout
-	_check("owner 释放后声道回收",
+	_check("owner 释放后两条声道都回收",
 			not bus.is_channel_playing(&"probe_owned")
-			and not bus.channel_ids().has(&"probe_owned"))
+			and not bus.channel_ids().has(&"probe_owned")
+			and not bus.is_channel_playing(&"probe_owned_2")
+			and not bus.channel_ids().has(&"probe_owned_2"))
 
 	# ---- 命名声道：非循环播完自动回收
 	bus.channel(&"probe_once", Sfx.tap(), {"loop": false, "db": -20.0})
