@@ -77,6 +77,14 @@ func _ready() -> void:
 	await _frames(3)
 	_check("逢魔时撤掉了东侧货车和司机", story.parked_cleared())
 
+	# 路牌提示是玩家能看见的唯一信号：出口被路由禁用后它必须消失，
+	# 而不是留在那儿等按了 E 才发现没反应。
+	await _goto(Vector3(28.0, 0.17, -0.2))
+	await _frames(4)
+	_check("逢魔时回商店街的路牌不再出提示", world.hub.focused_text() == "")
+	await _goto(Vector3(18.0, 0.17, 6.4))
+	await _frames(3)
+
 	# ---- 撞车：缓冲结束后再次踏上国道 ----
 	await get_tree().create_timer(3.6).timeout
 	await _goto(Vector3(18.0, 0.02, 2.2))

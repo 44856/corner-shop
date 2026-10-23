@@ -10,15 +10,17 @@ extends Node
 ##   而且正常播完和按空格跳过都走这条路 —— 一个条件覆盖两种情况。
 ##
 ## 遮罩的必要性：_cleanup() 把 UI 收掉的同时，cutscene 自己的黑场 ColorRect
-##   也跟着不可见了，画面会突然跳回雨夜场景。所以这里必须自己盖一层黑。
+##   也跟着不可见了，画面会突然跳回雨夜场景。所以这里必须自己盖一层黑，
+##   撑到 SceneRouter 的字母屏接过去。
 
 const MAIN := preload("res://scenes/main.tscn")
 const CUTSCENE_SCRIPT := preload("res://scripts/cutscene.gd")
-const NEXT_SCENE := "res://scenes/grassland.tscn"
+const SCENE_ID := &"opening_flow"
+const NEXT_SCENE_ID := &"grassland"
 
 ## 盖黑用多久（秒）
 const VEIL_SECONDS := 0.25
-## 全黑之后停多久再切场景（秒）
+## 全黑之后停多久再交给 SceneRouter（秒）
 const HOLD_SECONDS := 0.55
 
 var _main: Node3D
@@ -28,6 +30,7 @@ var _finished := false
 
 
 func _ready() -> void:
+	SceneRouter.bind_scene(SCENE_ID)
 	_build_veil()
 	_main = MAIN.instantiate()
 	add_child(_main)
@@ -59,9 +62,10 @@ func _find_cutscene(root: Node) -> Node:
 
 
 func _build_veil() -> void:
-	# layer 128 远高于 cutscene 的 20，保证盖在所有演出之上
+	# 高于 cutscene 的 20，遮住它撤 UI 的那一瞬间；
+	# 但必须低于 LetterTransition 的 100，否则字母屏会被这层黑整个盖住。
 	var layer := CanvasLayer.new()
-	layer.layer = 128
+	layer.layer = 90
 	add_child(layer)
 
 	_veil = ColorRect.new()
@@ -78,4 +82,19 @@ func _go_next() -> void:
 	await tw.finished
 	await get_tree().create_timer(HOLD_SECONDS).timeout
 	print("[opening_flow] 开场结束，切到草原")
-	get_tree().change_scene_to_file(NEXT_SCENE)
+	# 演出结束后的落点与世界线都交给 SceneRouter，不再直接 change_scene。
+	# 旧流程靠「直接换场景」跳过加载屏；现在目的地与转场文案归路由层，
+	# 两个进入草原的入口（开场 / 死亡）也就共用同一套转场语言。
+	var started := SceneRouter.goto(NEXT_SCENE_ID, &"default", {
+		"mode": &"opening",
+		"set_story_node": &"ep3_grassland",
+		"transition": {
+			"style": "letter",
+			"title": "ISEKAI",
+			"subtitle": "GRASSLAND",
+			"footer": "SOMEWHERE · 06:12",
+			"accent": Color("#ffd39a"),
+		},
+	})
+	if not started:
+		push_warning("[opening_flow] 转场未能启动")
