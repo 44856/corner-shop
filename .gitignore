@@ -9,8 +9,15 @@ Godot_v*-stable_linux.x86_64
 Godot_v*.zip
 *.exe
 
+# 渲染产物：截图是「结果」不是「源码」。
+# 每次重渲都产生二进制 diff，进 review 只是噪声；历史还会永久的膨胀。
+# 保留目录本身（.gitkeep），否则 --shot 会因为目录不存在而失败。
+/shots/*
+!/shots/.gitkeep
+
 # 工作区/助手数据
 .workbuddy/
+.workbuddy-ai/
 
 # 系统文件
 .DS_Store

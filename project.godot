@@ -16,7 +16,7 @@ compatibility/default_parent_skeleton_in_mesh_instance_3d=true
 
 config/name="雨夜便利店街角 / Rainy Corner Mart"
 config/description="A cel-shaded rainy night Japanese convenience store corner diorama."
-run/main_scene="res://scenes/main.tscn"
+run/main_scene="res://scenes/store_walk.tscn"
 config/features=PackedStringArray("4.7", "Forward Plus")
 
 [display]

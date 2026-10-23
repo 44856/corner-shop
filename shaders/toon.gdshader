@@ -15,7 +15,25 @@ uniform vec3 emit_color : source_color = vec3(0.0);
 uniform float emit_strength = 0.0;
 uniform float ao_boost = 0.0;
 
+// 台面裁剪：世界坐标超出台面范围的部分直接 discard。
+// 给「从场外开进来」的东西用（货车），否则半截车身会浮在微缩底座外面。
+// 默认关闭，其余材质完全不受影响；需要逐材质独立参数，
+// 所以挂了裁剪的材质必须用 kit.toon_clipped() 生成（不走材质缓存）。
+uniform bool clip_on = false;
+uniform vec3 clip_min = vec3(-5.6, -2.0, -5.6);
+uniform vec3 clip_max = vec3(5.6, 8.0, 5.6);
+
+varying vec3 v_world;
+
+void vertex() {
+	v_world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+}
+
 void fragment() {
+	if (clip_on && (any(lessThan(v_world, clip_min)) || any(greaterThan(v_world, clip_max)))) {
+		discard;
+	}
+
 	ALBEDO = base_color.rgb;
 	ROUGHNESS = 0.95;
 	METALLIC = 0.0;

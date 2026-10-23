@@ -1,12 +1,31 @@
 extends RefCounted
 
 const K := preload("res://scripts/kit.gd")
+const Store := preload("res://scripts/store.gd")
 
 # 街角道具：贩卖机 / 自行车 / 伞架 / 垃圾桶 / 空调外机 / 后巷什物 / 猫
 
 
 static func build(root: Node3D) -> void:
 	var g := K.group(root, "Props")
+	_storefront(g)
+	_alley(g)
+
+
+## 便利店门前那一组（地垫 / 伞架 / 垃圾桶 / 招牌 / 自行车 / 地灯 / 猫）。
+## 新街区只想要这些、不想要后巷时走这个入口。
+static func storefront(root: Node3D) -> void:
+	var g := K.group(root, "StorefrontProps")
+	_storefront(g)
+
+
+## 后巷单独一组。便利店和新区街的店面可以各挂一份。
+static func alley(root: Node3D) -> void:
+	var g := K.group(root, "AlleyProps")
+	_alley(g)
+
+
+static func _storefront(g: Node3D) -> void:
 	_doormat(g)
 	_umbrella_stand(g)
 	_bins(g)
@@ -14,7 +33,23 @@ static func build(root: Node3D) -> void:
 	_bicycle(g, Vector3(-1.02, 0.16, 0.5), 62.0)
 	_store_lamp(g)
 	_cat(g)
-	_alley(g)
+
+
+# ---------------------------------------------------------------- 公开道具
+
+## 下面三个只是私有建造器的公开转发：新街区要摆第二台贩卖机、更多自行车、
+## 以及停车场里的轻自动车。复制一份视觉代码迟早会漂移，这里只多一层壳。
+
+static func vending(root: Node3D, pos: Vector3, rot_y: float) -> void:
+	_vending(root, pos, rot_y)
+
+
+static func bicycle(root: Node3D, pos: Vector3, rot_y: float) -> void:
+	_bicycle(root, pos, rot_y)
+
+
+static func kei_van(root: Node3D, pos: Vector3, rot_y: float) -> void:
+	_kei_van(root, pos, rot_y)
 
 
 static func _doormat(g: Node3D) -> void:
@@ -106,7 +141,8 @@ static func _bicycle(g: Node3D, pos: Vector3, rot_y: float) -> void:
 
 	for hub_v in [rear, front]:
 		var hub: Vector3 = hub_v
-		K.torus(b, 0.235, 0.315, hub, dark, Vector3(0, 90, 0), false)
+		# 轮圈立在 YZ 平面（绕 Z 转 90°），绕 Y 转会留在水平面
+		K.torus(b, 0.235, 0.315, hub, dark, Vector3(0, 0, 90), false)
 		K.sphere(b, 0.035, hub, chrome, Vector3.ZERO, 8, 1.0, false)
 		for s in 3:
 			var ang := TAU * float(s) / 3.0 + 0.4
@@ -125,14 +161,20 @@ static func _bicycle(g: Node3D, pos: Vector3, rot_y: float) -> void:
 	K.strut(b, Vector3(0, 0.88, 0.4), Vector3(0.24, 0.9, 0.36), 0.016, chrome, 6)
 	K.strut(b, Vector3(0, 0.88, 0.4), Vector3(-0.24, 0.9, 0.36), 0.016, chrome, 6)
 	K.box(b, Vector3(0.1, 0.05, 0.26), Vector3(0, 0.81, -0.14), dark)
-	K.box(b, Vector3(0.3, 0.22, 0.3), Vector3(0, 0.68, 0.56), K.toon(Color("#646a71"), {"shade": 0.55, "rim": 0.3, "line": 0.004}))
-	K.box(b, Vector3(0.22, 0.15, 0.2), Vector3(0, 0.69, 0.56), K.toon(Color("#3b4149"), {"line": 0.0}))
+	# 车筐架在前轮上方，不压轮胎；下面加一块托板免得悬空
+	K.box(b, Vector3(0.28, 0.025, 0.28), Vector3(0, 0.652, 0.56), dark)
+	K.box(b, Vector3(0.3, 0.22, 0.3), Vector3(0, 0.76, 0.56), K.toon(Color("#646a71"), {"shade": 0.55, "rim": 0.3, "line": 0.004}))
+	K.box(b, Vector3(0.22, 0.15, 0.2), Vector3(0, 0.77, 0.56), K.toon(Color("#3b4149"), {"line": 0.0}))
 	K.cyl(b, 0.05, 0.04, bb, chrome, Vector3(0, 0, 90), 8)
-	K.box(b, Vector3(0.02, 0.28, 0.02), bb + Vector3(0.07, 0.02, 0.06), dark)
+	# 撑脚落到地面
+	K.strut(b, bb + Vector3(0.06, -0.02, 0.06), Vector3(0.17, 0.0, 0.22), 0.011, dark, 6)
 	K.box(b, Vector3(0.03, 0.02, 0.42), Vector3(0, 0.3, -0.3), dark, Vector3.ZERO, false)
-	K.box(b, Vector3(0.07, 0.02, 0.3), rear + Vector3(0, 0.29, 0.02), dark)
-	K.box(b, Vector3(0.07, 0.02, 0.3), front + Vector3(0, 0.29, -0.02), dark)
-	K.sphere(b, 0.035, Vector3(0, 0.62, 0.72), K.glow(Color("#ffe9b8"), 1.2), Vector3.ZERO, 8, 1.0, false)
+	# 挡泥板压在轮胎上方
+	K.box(b, Vector3(0.06, 0.02, 0.34), rear + Vector3(0, 0.345, 0.02), dark)
+	K.box(b, Vector3(0.06, 0.02, 0.34), front + Vector3(0, 0.345, -0.02), dark)
+	# 车头灯是停着的车，不该亮：这里原本用 K.glow 做灯罩，自发光没有开关，
+	# 停在店门口也一直发光。改成深色玻璃镜片，保留灯的体积但不发光。
+	K.sphere(b, 0.035, Vector3(0, 0.62, 0.72), K.pbr(Color("#2f363d"), 0.15, 0.4), Vector3.ZERO, 8, 1.0, false)
 
 
 # ---------------------------------------------------------------- 立式招牌 / 地灯 / 猫
@@ -185,9 +227,16 @@ static func _cat(g: Node3D) -> void:
 static func _alley(g: Node3D) -> void:
 	var a := K.group(g, "Alley")
 
+	# 店面加宽 1.2m 之后，后巷从 2.35m 收窄到 1.06m —— 还是一条能走进去的窄巷，
+	# 但摆不下贩卖机了（它搬到店门前的雨棚外沿，见 build()）。
+	# 这里所有贴墙的东西都以店面东墙外皮 w 为基准，别再写死 3.08 / 3.12 那种数字。
+	var w: float = Store.X1      # 店面东墙外皮 4.30
+	var e := 5.36                # 巷子东侧矮墙的内面
+	var ac := (w + e) * 0.5      # 巷子中线 4.83
+
 	# 后巷地面
-	K.box(a, Vector3(2.35, 0.03, 4.6), Vector3(4.28, 0.175, -3.2), K.paving(Color("#3d4047"), Color("#3a3d45"), 0.7), Vector3.ZERO, false)
-	K.plane(a, Vector2(0.14, 4.5), Vector3(4.02, 0.191, -3.2), K.toon(Color("#1c1f24"), {"shade": 0.9, "line": 0.0}), Vector3.ZERO, false)
+	K.box(a, Vector3(e - w, 0.03, 4.6), Vector3(ac, 0.175, -3.2), K.paving(Color("#3d4047"), Color("#3a3d45"), 0.7), Vector3.ZERO, false)
+	K.plane(a, Vector2(0.14, 4.5), Vector3(w + 0.24, 0.191, -3.2), K.toon(Color("#1c1f24"), {"shade": 0.9, "line": 0.0}), Vector3.ZERO, false)
 
 	# 后巷矮墙 + 通透铁栏
 	var wall := K.toon(Color("#33363d"), {"shade": 0.45, "rim": 0.15, "line": 0.008})
@@ -196,46 +245,47 @@ static func _alley(g: Node3D) -> void:
 	for i in 4:
 		K.box(a, Vector3(0.01, 0.012, 4.9), Vector3(5.24, 0.45 + i * 0.2, -3.02), K.toon(Color("#45474e"), {"line": 0.0}), Vector3.ZERO, false)
 	var fence := K.toon(Color("#3c424a"), {"shade": 0.55, "rim": 0.25, "line": 0.004})
-	var fx := 5.3
-	while fx > 3.2:
-		K.box(a, Vector3(0.035, 0.75, 0.035), Vector3(5.3, 1.55, fx), fence)
-		fx -= 0.55
+	var fz := -0.55
+	while fz > -5.5:
+		K.box(a, Vector3(0.035, 0.75, 0.035), Vector3(5.3, 1.55, fz), fence)
+		fz -= 0.55
 	K.strut(a, Vector3(5.3, 1.9, -0.55), Vector3(5.3, 1.9, -5.5), 0.022, fence, 6)
 	K.strut(a, Vector3(5.3, 1.22, -0.55), Vector3(5.3, 1.22, -5.5), 0.02, fence, 6)
 
-	# 巷子尽头的木门
+	# 巷子尽头的木门（巷子只剩 1.06m，门跟着收窄）
 	var wood := K.toon(Color("#5c422e"), {"shade": 0.5, "rim": 0.2, "line": 0.005})
-	K.box(a, Vector3(1.85, 1.95, 0.1), Vector3(4.3, 1.14, -5.38), wood)
-	for i in 5:
-		K.box(a, Vector3(0.03, 1.95, 0.12), Vector3(3.55 + i * 0.38, 1.14, -5.37), K.toon(Color("#42301f"), {"line": 0.0}), Vector3.ZERO, false)
-	K.box(a, Vector3(2.05, 0.12, 0.16), Vector3(4.3, 2.16, -5.37), K.toon(Color("#42301f"), {"line": 0.005}))
+	K.box(a, Vector3(0.86, 1.95, 0.1), Vector3(ac, 1.14, -5.38), wood)
+	for i in 3:
+		K.box(a, Vector3(0.03, 1.95, 0.12), Vector3(ac - 0.28 + i * 0.28, 1.14, -5.37), K.toon(Color("#42301f"), {"line": 0.0}), Vector3.ZERO, false)
+	K.box(a, Vector3(0.94, 0.12, 0.16), Vector3(ac, 2.16, -5.37), K.toon(Color("#42301f"), {"line": 0.005}))
 
-	# 服务门
-	K.box(a, Vector3(0.05, 1.9, 0.86), Vector3(3.12, 1.13, -4.5), K.toon(Color("#4c535a"), {"shade": 0.55, "rim": 0.25, "line": 0.006}))
-	K.box(a, Vector3(0.06, 0.03, 0.8), Vector3(3.11, 0.57, -4.5), K.toon(Color("#343a41"), {"line": 0.0}), Vector3.ZERO, false)
-	K.cyl(a, 0.014, 0.13, Vector3(3.09, 1.05, -4.18), K.toon(Color("#a8abaf"), {"line": 0.0}), Vector3(0, 0, 90), 6)
+	# 服务门（通进员工休息室）
+	K.box(a, Vector3(0.05, 1.9, 0.86), Vector3(w + 0.02, 1.13, -4.5), K.toon(Color("#4c535a"), {"shade": 0.55, "rim": 0.25, "line": 0.006}))
+	K.box(a, Vector3(0.06, 0.03, 0.8), Vector3(w + 0.01, 0.57, -4.5), K.toon(Color("#343a41"), {"line": 0.0}), Vector3.ZERO, false)
+	K.cyl(a, 0.014, 0.13, Vector3(w - 0.01, 1.05, -4.18), K.toon(Color("#a8abaf"), {"line": 0.0}), Vector3(0, 0, 90), 6)
 
 	# 墙上管道
 	var pipe := K.toon(Color("#767b82"), {"shade": 0.5, "rim": 0.3, "line": 0.004})
-	K.cyl(a, 0.033, 2.1, Vector3(3.08, 1.2, -3.8), pipe, Vector3.ZERO, 8)
-	K.cyl(a, 0.024, 2.1, Vector3(3.08, 1.2, -3.62), pipe, Vector3.ZERO, 8)
-	K.cyl(a, 0.033, 2.1, Vector3(3.08, 1.2, -1.75), pipe, Vector3.ZERO, 8)
+	K.cyl(a, 0.033, 2.1, Vector3(w - 0.02, 1.2, -3.8), pipe, Vector3.ZERO, 8)
+	K.cyl(a, 0.024, 2.1, Vector3(w - 0.02, 1.2, -3.62), pipe, Vector3.ZERO, 8)
+	K.cyl(a, 0.033, 2.1, Vector3(w - 0.02, 1.2, -1.75), pipe, Vector3.ZERO, 8)
 	for i in 3:
-		K.cyl(a, 0.05, 0.05, Vector3(3.08, 0.65 + i * 0.55, -3.71), pipe, Vector3.ZERO, 8)
+		K.cyl(a, 0.05, 0.05, Vector3(w - 0.02, 0.65 + i * 0.55, -3.71), pipe, Vector3.ZERO, 8)
 
-	# 挂墙空调外机
+	# 挂墙空调外机。底面 1.86m —— 高过人物头顶（1.72），所以不需要碰撞，
+	# 也不会再出现「贴着外机就能隔着墙按服务铃」那种事（判定已加视线检查）。
 	for z in [-3.15, -2.35]:
-		var ac := K.group(a, "AC", Vector3(3.27, 2.1, z))
-		K.box(ac, Vector3(0.36, 0.48, 0.7), Vector3.ZERO, K.toon(Color("#6f706c"), {"shade": 0.5, "rim": 0.25, "line": 0.006}))
-		K.cyl(ac, 0.18, 0.03, Vector3(0.19, 0, 0), K.toon(Color("#33383e"), {"line": 0.0}), Vector3(0, 0, 90), 14)
-		K.cyl(ac, 0.13, 0.01, Vector3(0.205, 0, 0), K.toon(Color("#6d737b"), {"line": 0.0}), Vector3(0, 0, 90), 14)
+		var acg := K.group(a, "AC", Vector3(w + 0.17, 2.1, z))
+		K.box(acg, Vector3(0.36, 0.48, 0.7), Vector3.ZERO, K.toon(Color("#6f706c"), {"shade": 0.5, "rim": 0.25, "line": 0.006}))
+		K.cyl(acg, 0.18, 0.03, Vector3(0.19, 0, 0), K.toon(Color("#33383e"), {"line": 0.0}), Vector3(0, 0, 90), 14)
+		K.cyl(acg, 0.13, 0.01, Vector3(0.205, 0, 0), K.toon(Color("#6d737b"), {"line": 0.0}), Vector3(0, 0, 90), 14)
 		for i in 3:
-			K.box(ac, Vector3(0.02, 0.42, 0.02), Vector3(0.19, 0, -0.2 + i * 0.2), K.toon(Color("#5c626a"), {"line": 0.0}), Vector3.ZERO, false)
-		K.box(ac, Vector3(0.4, 0.04, 0.06), Vector3(0, -0.26, 0.26), K.toon(Color("#3e434a"), {"line": 0.0}))
-		K.box(ac, Vector3(0.4, 0.04, 0.06), Vector3(0, -0.26, -0.26), K.toon(Color("#3e434a"), {"line": 0.0}))
+			K.box(acg, Vector3(0.02, 0.42, 0.02), Vector3(0.19, 0, -0.2 + i * 0.2), K.toon(Color("#5c626a"), {"line": 0.0}), Vector3.ZERO, false)
+		K.box(acg, Vector3(0.4, 0.04, 0.06), Vector3(0, -0.26, 0.26), K.toon(Color("#3e434a"), {"line": 0.0}))
+		K.box(acg, Vector3(0.4, 0.04, 0.06), Vector3(0, -0.26, -0.26), K.toon(Color("#3e434a"), {"line": 0.0}))
 
 	# 墙上壁灯
-	var lamp_p := Vector3(3.16, 2.55, -1.95)
+	var lamp_p := Vector3(w + 0.06, 2.55, -1.95)
 	K.box(a, Vector3(0.2, 0.06, 0.1), lamp_p + Vector3(0.06, 0, 0), K.toon(Color("#33383e"), {"line": 0.004}))
 	K.sphere(a, 0.065, lamp_p + Vector3(0.16, -0.05, 0), K.glow(Color("#ffcb8a"), 2.4), Vector3.ZERO, 10, 1.0, false)
 	K.sphere(a, 0.28, lamp_p + Vector3(0.17, -0.05, 0), K.soft(Color("#ffb877"), 0.4, 1.8), Vector3.ZERO, 12, 1.0, false)
@@ -246,18 +296,18 @@ static func _alley(g: Node3D) -> void:
 	al.position = lamp_p + Vector3(0.22, -0.1, 0)
 	a.add_child(al)
 
-	# 巷内贩卖机
-	_vending(a, Vector3(3.6, 0.16, -3.5), 90.0)
+	# 巷内贩卖机：巷子收窄之后只剩尽头放得下（1.0m 宽塞进 1.06m 的巷子，
+	# 面朝巷口）。放在这里反而对：红光从巷子深处透出来，是这条巷子的光源。
+	_vending(a, Vector3(ac, 0.16, -4.95), 0.0)
 
-	# 啤酒箱
+	# 啤酒箱 / 垃圾袋：挪到巷子中段靠东墙，别和贩卖机打架
 	var crate := K.toon(Color("#8a6d22"), {"shade": 0.55, "rim": 0.2, "line": 0.005})
 	for i in 3:
-		K.box(a, Vector3(0.5, 0.28, 0.34), Vector3(5.02, 0.3 + i * 0.29, -4.6), crate)
+		K.box(a, Vector3(0.4, 0.28, 0.34), Vector3(5.14, 0.3 + i * 0.29, -4.28), crate)
 		if i < 2:
-			K.box(a, Vector3(0.5, 0.28, 0.34), Vector3(5.02, 0.3 + i * 0.29, -4.2), crate)
-	# 垃圾袋
+			K.box(a, Vector3(0.4, 0.28, 0.34), Vector3(5.14, 0.3 + i * 0.29, -3.92), crate)
 	var bag := K.toon(Color("#24282f"), {"shade": 0.45, "rim": 0.4, "line": 0.005})
-	for d in [[Vector3(4.85, 0.33, -5.05), 0.18], [Vector3(5.08, 0.31, -4.92), 0.15], [Vector3(4.95, 0.29, -4.75), 0.13]]:
+	for d in [[Vector3(4.95, 0.33, -4.12), 0.16], [Vector3(5.14, 0.31, -3.76), 0.14], [Vector3(4.98, 0.29, -3.58), 0.12]]:
 		var s := K.sphere(a, d[1], d[0], bag, Vector3.ZERO, 10, 1.15)
 		s.scale = Vector3(1.0, 1.0, 0.95)
 
@@ -265,11 +315,11 @@ static func _alley(g: Node3D) -> void:
 	back.light_color = Color("#9cbaff")
 	back.light_energy = 0.4
 	back.omni_range = 2.8
-	back.position = Vector3(4.6, 2.0, -5.0)
+	back.position = Vector3(4.9, 2.0, -5.0)
 	a.add_child(back)
 
 	# 巷口红灯笼
-	var lan := K.group(a, "Lantern", Vector3(3.12, 2.32, -1.62))
+	var lan := K.group(a, "Lantern", Vector3(w + 0.02, 2.32, -1.62))
 	K.box(lan, Vector3(0.3, 0.04, 0.04), Vector3(0.13, 0.16, 0), K.toon(Color("#2e333a"), {"line": 0.0}))
 	K.cyl(lan, 0.105, 0.28, Vector3(0.27, -0.01, 0), K.glow(Color("#d8462f"), 1.4), Vector3.ZERO, 12)
 	K.cyl(lan, 0.07, 0.02, Vector3(0.27, -0.16, 0), K.toon(Color("#262a31"), {"line": 0.0}), Vector3.ZERO, 12)
@@ -278,7 +328,7 @@ static func _alley(g: Node3D) -> void:
 	ll.light_color = Color("#ff6448")
 	ll.light_energy = 0.6
 	ll.omni_range = 2.4
-	ll.position = Vector3(3.38, 2.3, -1.62)
+	ll.position = Vector3(w + 0.28, 2.3, -1.62)
 	a.add_child(ll)
 
 	# 粉色霓虹
@@ -292,7 +342,7 @@ static func _alley(g: Node3D) -> void:
 	a.add_child(nl)
 
 	# 公告栏（便利店侧墙）
-	var board := K.group(a, "Board", Vector3(3.13, 1.5, -1.72), Vector3(0, 90, 0))
+	var board := K.group(a, "Board", Vector3(w + 0.03, 1.5, -1.72), Vector3(0, 90, 0))
 	K.box(board, Vector3(0.85, 0.62, 0.04), Vector3.ZERO, K.toon(Color("#4e3c2a"), {"shade": 0.5, "rim": 0.2, "line": 0.005}))
 	K.box(board, Vector3(0.78, 0.53, 0.02), Vector3(0, 0, 0.025), K.toon(Color("#3f382e"), {"line": 0.0}))
 	var papers := [Vector2(-0.22, 0.1), Vector2(0.02, -0.04), Vector2(0.24, 0.11)]

@@ -9,11 +9,17 @@ const SOFT := preload("res://shaders/soft_glow.gdshader")
 const GLASS := preload("res://shaders/glass.gdshader")
 const PAVING := preload("res://shaders/paving.gdshader")
 const WET := preload("res://shaders/wet_glow.gdshader")
+const BEAM := preload("res://shaders/headlamp.gdshader")
+const UI_FONT := preload("res://scripts/ui_font.gd")
 
 static var _cache: Dictionary = {}
 static var _outline_cache: Dictionary = {}
 static var _glow_cache: Dictionary = {}
 static var _soft_cache: Dictionary = {}
+
+## 台面（微缩底座顶面）的世界包围盒：x/z ±5.6，高度留足。
+## 着色器裁剪用它 —— 超出台面的片元直接 discard，不渲染。
+const PLATFORM_CLIP := AABB(Vector3(-5.6, -2.0, -5.6), Vector3(11.2, 10.0, 11.2))
 
 # ---------------------------------------------------------------- 材质
 
@@ -52,6 +58,54 @@ static func toon(color: Color, p: Dictionary = {}) -> ShaderMaterial:
 	if line > 0.0:
 		m.next_pass = outline_mat(line)
 	_cache[key] = m
+	return m
+
+
+## 带台面裁剪的三渲二材质。
+## 和 toon() 长得一样，但**不走缓存**：clip_* 是逐材质的 uniform，
+## 共用缓存会让参数串到别的物体上（比如整条街都被裁掉）。
+## 描边 pass 也一起复制并打上同一组参数，否则车身裁了、描边壳还在。
+static func toon_clipped(color: Color, p: Dictionary = {}, clip: AABB = PLATFORM_CLIP) -> ShaderMaterial:
+	var m := toon(color, p).duplicate() as ShaderMaterial
+	_apply_clip(m, clip)
+	var op := m.next_pass as ShaderMaterial
+	if op != null:
+		op = op.duplicate() as ShaderMaterial
+		_apply_clip(op, clip)
+		m.next_pass = op
+	return m
+
+
+static func _apply_clip(m: ShaderMaterial, clip: AABB) -> void:
+	m.set_shader_parameter("clip_on", true)
+	m.set_shader_parameter("clip_min", clip.position)
+	m.set_shader_parameter("clip_max", clip.end)
+
+
+## 带台面裁剪的自发光材质（灯板 / 尾灯）。不走缓存，理由同 toon_clipped。
+static func glow_clipped(color: Color, strength: float = 1.6, scan: float = 0.0,
+		clip: AABB = PLATFORM_CLIP) -> ShaderMaterial:
+	var m := glow(color, strength, scan).duplicate() as ShaderMaterial
+	_apply_clip(m, clip)
+	return m
+
+
+## 车灯光束 / 地面光池。参数直接透传给 headlamp.gdshader，裁剪参数一并打上。
+## 光柱也是「从场外开进来的东西」，不裁就会在底座外面亮着。
+static func headlamp(p: Dictionary, clip: AABB = PLATFORM_CLIP) -> ShaderMaterial:
+	var m := ShaderMaterial.new()
+	m.shader = BEAM
+	for k in p:
+		m.set_shader_parameter(k, p[k])
+	_apply_clip(m, clip)
+	return m
+
+
+## 带台面裁剪的柔光球（货车灯头光晕）。理由同 glow_clipped。
+static func soft_clipped(color: Color, strength: float = 0.4, power: float = 2.2,
+		clip: AABB = PLATFORM_CLIP) -> ShaderMaterial:
+	var m := soft(color, strength, power).duplicate() as ShaderMaterial
+	_apply_clip(m, clip)
 	return m
 
 
@@ -150,6 +204,60 @@ static func box(parent: Node3D, size: Vector3, pos: Vector3, mat: Material, rot:
 	mi.mesh = m
 	mi.material_override = mat
 	return _finish(parent, mi, pos, rot, shadow)
+
+
+## 三棱柱：顶点朝上、沿 +Z 挤出，正面（三角形）正好朝 +Z。
+## 不用 PrismMesh 是因为它的朝向由引擎定死，而饭团这类包装必须能直接对齐
+## 「正面 = +Z」的约定 —— 否则每摆一个都要再猜一次欧拉角。
+##
+## 两个坑都记在这儿，省得下次再来一遍：
+##
+## 1. 绕序：Godot 的正面是**顺时针**（从外面看）。按右手定则朝外的顺序直接提交，
+##    引擎会当成背面 —— 主 pass（cull_back）把它剔掉，而 next_pass 的描边壳
+##    （cull_front）偏偏保留了它，外扩 0.012 后整片盖成描边色。
+##    结果不是「看不见」，是「看见一块纯描边色的三角」，很难往绕序上想。
+##
+## 2. 法线：不能用 generate_normals()。它按**顶点位置**平均，三棱柱的每条棱上
+##    三个面共用一个位置，于是三个面被糊成圆角。公会山墙是 25 m 宽的大平板，
+##    平均出来的法线偏向斜上方，ndl 掉到暗部阈值以下，整片墙永远发灰紫。
+##    这里逐三角形算面法线、显式 set_normal()，硬边实体的样子才对。
+static func prism(parent: Node3D, size: Vector3, pos: Vector3, mat: Material, rot: Vector3 = Vector3.ZERO, shadow: bool = true) -> MeshInstance3D:
+	var hw := size.x * 0.5
+	var hh := size.y * 0.5
+	var hd := size.z * 0.5
+	var apex := Vector3(0, hh, 0)
+	var left := Vector3(-hw, -hh, 0)
+	var right := Vector3(hw, -hh, 0)
+	var fz := Vector3(0, 0, hd)
+
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	_tri(st, apex + fz, left + fz, right + fz)
+	_tri(st, apex - fz, right - fz, left - fz)
+	# 三个侧面，每个矩形拆两个三角形
+	for edge in [[left, apex], [right, left], [apex, right]]:
+		var p0: Vector3 = edge[0]
+		var p1: Vector3 = edge[1]
+		var a := p0 + fz
+		var b := p1 + fz
+		var c := p1 - fz
+		var d := p0 - fz
+		_tri(st, a, b, c)
+		_tri(st, a, c, d)
+	var mi := MeshInstance3D.new()
+	mi.mesh = st.commit()
+	mi.material_override = mat
+	return _finish(parent, mi, pos, rot, shadow)
+
+
+## 提交一个三角形。调用方按「右手定则法线朝外」的顺序给 a/b/c，
+## 这里负责两件事：算平直面法线（写死，不让引擎平均），
+## 发射时把 b/c 换位（右手朝外 → 引擎眼里的正面）。
+static func _tri(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3) -> void:
+	var n := (b - a).cross(c - a).normalized()
+	for v in [a, c, b]:
+		st.set_normal(n)
+		st.add_vertex(v)
 
 
 static func plane(parent: Node3D, size: Vector2, pos: Vector3, mat: Material, rot: Vector3 = Vector3.ZERO, shadow: bool = false) -> MeshInstance3D:
@@ -292,6 +400,16 @@ static func label(parent: Node3D, text: String, pos: Vector3, height: float, col
 	return l
 
 
+## 带中日文字形的标签。Label3D 默认吃引擎内置字体，日文/汉字会变成方块；
+## 招牌、暖帘、路牌一律走这个入口。
+static func label_cjk(parent: Node3D, text: String, pos: Vector3, height: float,
+		color: Color, rot: Vector3 = Vector3.ZERO, outline: int = 0,
+		glow_col: Color = Color(0, 0, 0)) -> Label3D:
+	var l := label(parent, text, pos, height, color, rot, outline, glow_col)
+	l.font = UI_FONT.get_font()
+	return l
+
+
 static func group(parent: Node3D, name: String, pos: Vector3 = Vector3.ZERO, rot: Vector3 = Vector3.ZERO) -> Node3D:
 	var n := Node3D.new()
 	n.name = name
@@ -299,3 +417,90 @@ static func group(parent: Node3D, name: String, pos: Vector3 = Vector3.ZERO, rot
 	n.rotation_degrees = rot
 	parent.add_child(n)
 	return n
+
+
+# ---------------------------------------------------------------- 静态合批
+
+## 把静态分支里的三渲二网格合并成少数几个 ArrayMesh。
+##
+## 商店街有 2500+ 个 MeshInstance3D，每个都是一次 draw call；更贵的是街灯
+## 全是立方体阴影，同一批几何要在 6 个面上各画一遍。这些几何在运行时完全
+## 不动，逐节点绘制纯属浪费。
+##
+## 只合并同时满足这些条件的节点：材质是 toon.gdshader（缓存共享，描边 pass
+## 也一致）、无 skin / 子节点 / 脚本，祖先里没有脚本或物理体。最后一条是
+## 关键 —— 自动门、会动的剧情道具必须留在原地，不能烘进静态网格。
+##
+## 世界变换直接烘进顶点：toon.gdshader 用 MODEL_MATRIX * VERTEX 算世界坐标，
+## 合并后的节点在场景原点、变换为单位阵，结果与原来逐节点绘制完全一致。
+##
+## branches 是 root 的直接子节点名；返回被合并掉的 MeshInstance3D 数量。
+static func batch_static(root: Node3D, branches: Array) -> int:
+	var buckets := {}
+	var victims: Array[MeshInstance3D] = []
+	for name in branches:
+		var branch := root.get_node_or_null(NodePath(String(name)))
+		if branch != null:
+			_collect_static(branch, root, buckets, victims)
+	if victims.is_empty():
+		return 0
+
+	var grp := Node3D.new()
+	grp.name = "BatchedStatic"
+	root.add_child(grp)
+
+	var n := 0
+	for key in buckets:
+		var b: Dictionary = buckets[key]
+		var mesh := (b["st"] as SurfaceTool).commit()
+		if mesh == null:
+			continue
+		var mi := MeshInstance3D.new()
+		mi.name = "Batch_%d" % n
+		mi.mesh = mesh
+		mi.material_override = b["mat"]
+		mi.cast_shadow = b["shadow"]
+		grp.add_child(mi)
+		n += 1
+
+	for mi in victims:
+		mi.get_parent().remove_child(mi)
+		mi.free()
+	return victims.size()
+
+
+static func _collect_static(n: Node, root: Node3D, buckets: Dictionary, victims: Array) -> void:
+	if n is MeshInstance3D and _batchable(n as MeshInstance3D):
+		var mi := n as MeshInstance3D
+		var mat := mi.material_override as ShaderMaterial
+		var shadow := mi.cast_shadow
+		var key := "%d|%d" % [mat.get_instance_id(), shadow]
+		if not buckets.has(key):
+			var st := SurfaceTool.new()
+			st.begin(Mesh.PRIMITIVE_TRIANGLES)
+			buckets[key] = {"st": st, "mat": mat, "shadow": shadow}
+		var t := root.global_transform.affine_inverse() * mi.global_transform
+		for i in mi.mesh.get_surface_count():
+			(buckets[key]["st"] as SurfaceTool).append_from(mi.mesh, i, t)
+		victims.append(mi)
+		return
+
+	for c in n.get_children():
+		# 带脚本 / 物理体的子树整体跳过：里面的网格随时可能被移动或旋转。
+		if c is CollisionObject3D or c.get_script() != null:
+			continue
+		_collect_static(c, root, buckets, victims)
+
+
+static func _batchable(mi: MeshInstance3D) -> bool:
+	if mi.mesh == null or mi.skin != null or mi.get_script() != null or mi.get_child_count() > 0:
+		return false
+	var m := mi.material_override
+	if not (m is ShaderMaterial) or (m as ShaderMaterial).shader != TOON:
+		return false
+	# 非三角形 surface（线段等）不能进 SurfaceTool 的三角形批次。
+	if mi.mesh is ArrayMesh:
+		for i in mi.mesh.get_surface_count():
+			if (mi.mesh as ArrayMesh).surface_get_primitive_type(i) != Mesh.PRIMITIVE_TRIANGLES:
+				return false
+	return true
