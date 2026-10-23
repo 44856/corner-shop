@@ -104,6 +104,9 @@ func _ready() -> void:
 	Props.alley(self)
 	TownCollision.build(self)
 	_build_west_exit()
+	# 静态街景到这里就装完了：合批后 2500+ 个 MeshInstance 收成几百批。
+	# 自动门、碰撞、角色都在这一行之后创建，不会被误烘进静态网格。
+	K.batch_static(self, ["Town", "ShopRow", "Store", "StorefrontProps", "AlleyProps", "WestExit"])
 
 	_setup_player()
 	_setup_door()
