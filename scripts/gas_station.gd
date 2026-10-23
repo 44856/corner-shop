@@ -19,8 +19,8 @@ const PlayerController := preload("res://scripts/player_controller.gd")
 const Hud := preload("res://scripts/hud.gd")
 const Hub := preload("res://scripts/interaction_hub.gd")
 const Sfx := preload("res://scripts/sfx.gd")
-const LetterTransition := preload("res://scripts/letter_transition.gd")
 const GasStationStory := preload("res://scripts/gas_station_story.gd")
+const PortalHost := preload("res://scripts/core/portal_host.gd")
 
 ## 场地范围。0 是西缘，30 是东缘；国道沿 X 穿过，z 0..4 是车行道。
 const X0 := 0.0
@@ -52,7 +52,24 @@ const KIOSK_TOP := 3.52
 ## 离回程触发线 1.5m —— 出生即触发的话，转场会来回弹。
 const SPAWN := Vector3(27.0, WALK_Y + 0.01, -1.05)
 const RETURN_X := 28.55
-const TOWN_SCENE := "res://scenes/hoshi_street.tscn"
+
+## 场景路由登记。目的地不在这里，在 scripts/core/world_links.gd。
+## default 与 east_sidewalk 现在落点相同：前者给「直接进站」留的口，
+## 后者才是从商店街走过来的正式 spawn 名。
+const SCENE_ID := &"gas_station"
+const SPAWNS := {
+	&"default": {"pos": SPAWN, "face": -PI * 0.5, "cam_yaw": 90.0},
+	&"east_sidewalk": {"pos": SPAWN, "face": -PI * 0.5, "cam_yaw": 90.0},
+}
+## 回程有两条路：北人行道走到东缘（走路触发），或按 E 让路牌带你回去。
+## 两者共用同一个出口，所以禁用一次就同时消失。
+const PORTALS := [
+	{"id": &"east_exit", "triggers": [
+		{"kind": "walk", "rect": Rect2(RETURN_X, Z0, X1 - RETURN_X, ROAD_Z0 - Z0)},
+		{"kind": "interact", "pos": Vector3(28.75, 1.2, -0.2), "radius": 1.7,
+			"prompt": "回星见町商店街"},
+	]},
+]
 
 ## 开阔地没有墙替你把镜头顶近：5.4m 的远景会让人物缩在画面中央。
 ## 收到 4.4m、支点降到胸口，保留街道的肩后视角，人物占比接近商店街。
@@ -61,14 +78,15 @@ const CAM := {"dist": 4.4, "height": 1.45, "fov": 52.0, "shoulder": 0.30}
 var player: CharacterBody3D
 var hud
 var hub
+var portals
 var env: Environment
 var moon: DirectionalLight3D
 var fill: DirectionalLight3D
 var story
 
 var _zone := "walk"
-var _transitioning := false
-var _arriving := false
+## SceneRouter 在 _ready 里交给本场景的「我是怎么来的」。取一次就清空。
+var _arrival: Dictionary = {}
 var _shooting := false
 var _seen_forecourt := false
 var _audio_override := false
@@ -77,8 +95,12 @@ var _hum: AudioStreamPlayer
 
 
 func _ready() -> void:
-	# 转场层还挂在 root 上 = 我们是被转场送过来的，开场黑幕由它负责淡出。
-	_arriving = get_tree().root.has_node("LetterTransition")
+	# 到达上下文必须最先取走：_setup_player 要用它决定落点。
+	SceneRouter.bind_scene(SCENE_ID)
+	_arrival = SceneRouter.consume_arrival()
+	if not _arrival.is_empty() and not _is_arrival():
+		push_warning("GasStation: 到达上下文属于 %s，不是本场景" % _arrival.get("to_scene", &""))
+		_arrival.clear()
 
 	var world := WorldEnv.build(self, {
 		"fog_length": 58.0,
@@ -112,6 +134,7 @@ func _ready() -> void:
 	_setup_player()
 	_setup_hud()
 	_setup_interactions()
+	_setup_portals()
 	_setup_audio()
 
 	if "--shot" in OS.get_cmdline_user_args():
@@ -121,10 +144,21 @@ func _ready() -> void:
 		return
 
 	_setup_story()
-	if _arriving:
+	if _is_arrival():
 		_on_arrival()
 	else:
 		_show_first_frame()
+
+
+func _is_arrival() -> bool:
+	return _arrival.get("to_scene", &"") == SCENE_ID
+
+
+func _spawn_data() -> Dictionary:
+	var key: StringName = &"default"
+	if _is_arrival():
+		key = _arrival.get("spawn", &"default")
+	return SPAWNS.get(key, SPAWNS[&"default"])
 
 
 # ---------------------------------------------------------------- 地面
@@ -1241,9 +1275,13 @@ func _ripples() -> Array:
 func _setup_player() -> void:
 	player = PlayerController.new()
 	player.name = "Player"
-	player.position = SPAWN
 	# 相机在 +X 侧、看向 −X：从商店街出来继续往西
-	player.start_yaw_deg = 90.0
+	var spawn := _spawn_data()
+	var pos: Vector3 = spawn.get("pos", SPAWN)
+	var face: float = float(spawn.get("face", -PI * 0.5))
+	var cam_yaw: float = float(spawn.get("cam_yaw", 90.0))
+	player.position = pos
+	player.start_yaw_deg = cam_yaw
 	player.capture_mouse_on_start = false
 	player.actor_tint = Color(0.54, 0.57, 0.68)
 	player.actor_shade_floor = 0.35
@@ -1253,7 +1291,7 @@ func _setup_player() -> void:
 	player.cam_height = CAM["height"]
 	add_child(player)
 	player.input_locked = true
-	player.face(-PI * 0.5)
+	player.face(face)
 	player.set_camera_profile(CAM["dist"], CAM["height"], CAM["fov"],
 		CAM["shoulder"], 6.0)
 
@@ -1281,12 +1319,15 @@ func _setup_interactions() -> void:
 	hub.add_target(Vector3(7.65, 0.9, 6.75), 1.4, "给轮胎打气", _on_air)
 	hub.add_target(Vector3(26.4, 1.5, 5.2), 2.0, "看看油价", _on_price)
 	hub.add_target(Vector3(7.9, 1.1, 11.35), 1.5, "买一罐热咖啡", _on_vending)
-	# 逢魔时之后旧世界线已经收束，路牌上的「回商店街」不再生效。
-	hub.add_target(Vector3(28.75, 1.2, -0.2), 1.7, "回星见町商店街", _on_back, _can_return)
+	# 回商店街的路牌由 PortalHost 按 PORTALS 注册：逢魔时之后路由表会禁用整个出口，
+	# 提示随之消失，而不是留一个按了没反应的按钮。
 
 
-func _can_return() -> bool:
-	return story == null or story.return_allowed()
+func _setup_portals() -> void:
+	portals = PortalHost.new()
+	portals.name = "PortalHost"
+	add_child(portals)
+	portals.bind(SCENE_ID, PORTALS, player, hud, hub)
 
 
 func _setup_story() -> void:
@@ -1346,25 +1387,24 @@ func _on_arrival() -> void:
 	hud.set_zone("加油站 · 人行道", true)
 	hud.toast("国道 17 号。雨被顶棚切开，加油站还亮着。", 4.5)
 
-	# 转场层还要 1s 才淡完 / 自毁。这段时间忽略回程触发，
+	# 转场层还要 1s 才淡完 / 自毁。这段时间忽略出口，
 	# 否则「落地 → 转身往东跑」会撞上一个尚未消失的转场层。
-	_transitioning = true
-	await get_tree().create_timer(1.2).timeout
-	_transitioning = false
+	portals.arm(1.2)
 
 
 ## 探针 / 调试用：跳过开场淡入。
 func skip_intro() -> void:
-	_arriving = false
 	hud.fade_in(0.0)
 	player.camera.current = true
 	player.input_locked = false
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
-## 转场开始后锁住当前场景。LetterTransition 也会调一次，重复调用无害。
+## 转场开始后锁住当前场景。SceneRouter 和 LetterTransition 各会调一次，重复调用无害。
 func lock_for_transition() -> void:
 	player.input_locked = true
+	if portals != null:
+		portals.enabled = false
 	if hub != null:
 		hub.enabled = false
 	if hud != null:
@@ -1394,14 +1434,6 @@ func _process(delta: float) -> void:
 			_rain.volume_db = lerpf(_rain.volume_db, rain_db, 1.0 - exp(-1.6 * delta))
 		if _hum != null:
 			_hum.volume_db = lerpf(_hum.volume_db, -38.0, 1.0 - exp(-1.6 * delta))
-
-	# 往东走过路牌就回商店街。只认北侧人行道：前场东缘也在 x > RETURN_X，
-	# 不加 z 条件的话，人在油站里绕到东边就会被莫名其妙地送走。
-	# 出生点在触发线以西 1.55m，落地不会立刻反弹。
-	if not _transitioning and not _shooting and not player.input_locked \
-			and p.x > RETURN_X and p.z < ROAD_Z0 \
-			and (story == null or not story.blocks_return()):
-		_go_shotengai()
 
 
 func zone() -> String:
@@ -1435,27 +1467,6 @@ func _on_zone_changed(zone: String) -> void:
 		hud.toast("汽油、湿沥青和铁皮上的雨。顶棚下面比外面安静一半。", 4.5)
 
 
-func _go_shotengai() -> void:
-	if _transitioning:
-		return
-	if story != null and story.blocks_return():
-		return
-	# 先看层在不在，再锁人：层还在时锁了再返回，会把人卡在输入锁里。
-	if get_tree().root.has_node("LetterTransition"):
-		return
-
-	_transitioning = true
-	lock_for_transition()
-
-	var tr := LetterTransition.new()
-	tr.name = "LetterTransition"
-	tr.title_text = "HOSHIMI"
-	tr.subtitle_text = "SHOTENGAI"
-	tr.footer_text = "WEST GATE · 00:07"
-	get_tree().root.add_child(tr)
-	tr.play(TOWN_SCENE)
-
-
 # ---------------------------------------------------------------- 交互回调
 
 func _on_pump() -> void:
@@ -1480,10 +1491,6 @@ func _on_price() -> void:
 func _on_vending() -> void:
 	_play_at(Vector3(7.45, 1.0, 11.35), Sfx.tap(), -7.0)
 	hud.toast("热咖啡落进取物口，罐身烫手。自动门里飘出一点关东煮的味道。", 4.2)
-
-
-func _on_back() -> void:
-	_go_shotengai()
 
 
 func _play_at(pos: Vector3, stream: AudioStream, db: float = -6.0) -> void:
@@ -1511,6 +1518,7 @@ func _only_shot() -> String:
 
 func _take_shots() -> void:
 	_shooting = true
+	portals.enabled = false
 	player.input_locked = false
 	hub.enabled = false
 	hud.fade_in(0.0)

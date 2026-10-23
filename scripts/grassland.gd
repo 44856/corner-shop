@@ -34,6 +34,8 @@ const Hub := preload("res://scripts/interaction_hub.gd")
 ## 或者改这一个常量 —— 剧本文件不用动
 const PLAYER_NAME := "旅人"
 
+const SCENE_ID := &"grassland"
+
 ## 地面边长（米）。整片地形都是土路那种平地，所以尺寸只需盖住「路 + 城镇地面」，
 ## 剩下的交给远景地面。
 ## 1500（±750）不是随便给的：城镇地面铺到 630，而远景地面那份材质**不算铺装**
@@ -100,9 +102,15 @@ var _zone := ""
 var _gate_tip_shown := false
 var _env: Environment
 var _sun: DirectionalLight3D
+## 醒来补间要两秒，远晚于 SceneRouter 清空到达上下文的时刻；
+## 所以在 _ready 里先存一份，后面判断「是不是死过来的」只看它。
+var _arrival: Dictionary = {}
 
 
 func _ready() -> void:
+	SceneRouter.bind_scene(SCENE_ID)
+	_arrival = SceneRouter.consume_arrival()
+
 	_setup_environment()
 	_setup_sun()
 	_setup_ground()
@@ -470,8 +478,10 @@ func _on_wake_finished() -> void:
 	player.input_locked = false
 	# 从加油站「死」过来的那一趟，第一小时不接任务、不解释设定，
 	# 只按感官顺序认识这具身体和新世界。正常从商店街进草原则不触发。
-	if get_tree().root.has_meta("from_gas_station_story"):
-		get_tree().root.remove_meta("from_gas_station_story")
+	# 判据是路由给的 arrival 上下文，不再是 root 上一个全局 meta ——
+	# meta 谁都能写、也谁都会忘删，第二次进草原就会重播这段。
+	if _arrival.get("from_scene", &"") == &"gas_station" \
+			and _arrival.get("mode", &"") == &"story":
 		_story_arrival_echo()
 
 
