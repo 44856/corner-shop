@@ -25,6 +25,7 @@ const Hud := preload("res://scripts/hud.gd")
 const Hub := preload("res://scripts/interaction_hub.gd")
 const Sfx := preload("res://scripts/sfx.gd")
 const TruckEvent := preload("res://scripts/truck_event.gd")
+const K := preload("res://scripts/kit.gd")
 
 ## 出生点：人行道上、雨棚底下，正对店门
 const SPAWN := Vector3(0.35, 0.17, 0.95)
@@ -69,6 +70,8 @@ func _ready() -> void:
 	Store.build(self, {"walkable": true, "auto_door": true})
 	Props.build(self)
 	CollisionLayout.build(self)
+	# 这个场景也吃同一套静态合批；自动门与角色都在这一行之后创建。
+	K.batch_static(self, ["Street", "Store", "Props"])
 
 	_setup_player()
 	_setup_door()

@@ -417,3 +417,90 @@ static func group(parent: Node3D, name: String, pos: Vector3 = Vector3.ZERO, rot
 	n.rotation_degrees = rot
 	parent.add_child(n)
 	return n
+
+
+# ---------------------------------------------------------------- 静态合批
+
+## 把静态分支里的三渲二网格合并成少数几个 ArrayMesh。
+##
+## 商店街有 2500+ 个 MeshInstance3D，每个都是一次 draw call；更贵的是街灯
+## 全是立方体阴影，同一批几何要在 6 个面上各画一遍。这些几何在运行时完全
+## 不动，逐节点绘制纯属浪费。
+##
+## 只合并同时满足这些条件的节点：材质是 toon.gdshader（缓存共享，描边 pass
+## 也一致）、无 skin / 子节点 / 脚本，祖先里没有脚本或物理体。最后一条是
+## 关键 —— 自动门、会动的剧情道具必须留在原地，不能烘进静态网格。
+##
+## 世界变换直接烘进顶点：toon.gdshader 用 MODEL_MATRIX * VERTEX 算世界坐标，
+## 合并后的节点在场景原点、变换为单位阵，结果与原来逐节点绘制完全一致。
+##
+## branches 是 root 的直接子节点名；返回被合并掉的 MeshInstance3D 数量。
+static func batch_static(root: Node3D, branches: Array) -> int:
+	var buckets := {}
+	var victims: Array[MeshInstance3D] = []
+	for name in branches:
+		var branch := root.get_node_or_null(NodePath(String(name)))
+		if branch != null:
+			_collect_static(branch, root, buckets, victims)
+	if victims.is_empty():
+		return 0
+
+	var grp := Node3D.new()
+	grp.name = "BatchedStatic"
+	root.add_child(grp)
+
+	var n := 0
+	for key in buckets:
+		var b: Dictionary = buckets[key]
+		var mesh := (b["st"] as SurfaceTool).commit()
+		if mesh == null:
+			continue
+		var mi := MeshInstance3D.new()
+		mi.name = "Batch_%d" % n
+		mi.mesh = mesh
+		mi.material_override = b["mat"]
+		mi.cast_shadow = b["shadow"]
+		grp.add_child(mi)
+		n += 1
+
+	for mi in victims:
+		mi.get_parent().remove_child(mi)
+		mi.free()
+	return victims.size()
+
+
+static func _collect_static(n: Node, root: Node3D, buckets: Dictionary, victims: Array) -> void:
+	if n is MeshInstance3D and _batchable(n as MeshInstance3D):
+		var mi := n as MeshInstance3D
+		var mat := mi.material_override as ShaderMaterial
+		var shadow := mi.cast_shadow
+		var key := "%d|%d" % [mat.get_instance_id(), shadow]
+		if not buckets.has(key):
+			var st := SurfaceTool.new()
+			st.begin(Mesh.PRIMITIVE_TRIANGLES)
+			buckets[key] = {"st": st, "mat": mat, "shadow": shadow}
+		var t := root.global_transform.affine_inverse() * mi.global_transform
+		for i in mi.mesh.get_surface_count():
+			(buckets[key]["st"] as SurfaceTool).append_from(mi.mesh, i, t)
+		victims.append(mi)
+		return
+
+	for c in n.get_children():
+		# 带脚本 / 物理体的子树整体跳过：里面的网格随时可能被移动或旋转。
+		if c is CollisionObject3D or c.get_script() != null:
+			continue
+		_collect_static(c, root, buckets, victims)
+
+
+static func _batchable(mi: MeshInstance3D) -> bool:
+	if mi.mesh == null or mi.skin != null or mi.get_script() != null or mi.get_child_count() > 0:
+		return false
+	var m := mi.material_override
+	if not (m is ShaderMaterial) or (m as ShaderMaterial).shader != TOON:
+		return false
+	# 非三角形 surface（线段等）不能进 SurfaceTool 的三角形批次。
+	if mi.mesh is ArrayMesh:
+		for i in mi.mesh.get_surface_count():
+			if (mi.mesh as ArrayMesh).surface_get_primitive_type(i) != Mesh.PRIMITIVE_TRIANGLES:
+				return false
+	return true

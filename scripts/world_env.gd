@@ -137,6 +137,9 @@ static func _rain(root: Node3D, cfg: Dictionary = {}) -> void:
 	p.lifetime = 2.4
 	p.preprocess = 2.2
 	p.fixed_fps = 60
+	# 雨丝是加色半透明面片，本来就不该投影。默认值 ON 时 4600 个粒子
+	# 会进入每一个阴影视图（街灯还是立方体阴影），实测占掉一半以上的 draw call。
+	p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	if half.x > 0.0:
 		var span := Vector3(half.x * 2.0 + 2.0, top_y + 9.0, half.y * 2.0 + 2.0)
 		p.visibility_aabb = AABB(

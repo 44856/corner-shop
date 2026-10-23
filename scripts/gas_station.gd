@@ -106,6 +106,8 @@ func _ready() -> void:
 	_build_props(g)
 	_build_lights(g)
 	_build_collision()
+	# 站内几何全部静态；货车 / 角色 / 碰撞都在 "Station" 分支之外，合批碰不到。
+	K.batch_static(self, ["Station"])
 
 	_setup_player()
 	_setup_hud()
