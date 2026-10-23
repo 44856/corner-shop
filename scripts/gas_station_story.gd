@@ -38,15 +38,19 @@ const PARKED_TRUCK_POS := Vector3(25.40, 0.16, 8.40)
 ## 不缓冲的话，黑幕一淡出车就来了，连「天怎么变了」都来不及看。
 const DUSK_GRACE := 3.4
 
-## 撞车接触距离 = 车头外沿 + 角色胶囊半径。
-## 原来的判定只看两台物体的中心距（2.9m），但车头本身就有 2.84m，
-## 于是「判定撞上」那一帧保险杠已经插进角色约 0.2m —— 这就是严重穿模的来源。
-## +0.04 是姿态余量：闪避时腿是收起来的，胶囊却是竖直的，
-## 留几厘米避免膝盖先一步戳进保险杠。
-const CONTACT_GAP := Truck.FRONT_X + PlayerController.BODY_RADIUS + 0.04
-## 侧扑距离。够看出人离开了原地，又不足以真的躲开（车会横向跟），
-## 所以是一次「徒劳但看得见的闪避」，不是把玩家救了。
-const DODGE_DISTANCE := 1.15
+## 角色躯干前缘到脚底中心的实测距离（gaia.glb 站立姿态，按高度切片量得
+## 胸口 0.146m、髋部 0.174m）。胶囊半径 0.32m 是按物理形状算的，
+## 比真人宽出一截；按胶囊表面留间隙，驾驶室会停在胸口外约 0.4m，像没撞上。
+const ACTOR_FRONT := 0.17
+## 撞车接触距离 = 驾驶室前脸 + 躯干前缘 + 可见间隙。
+## 用 CAB_X1 而不是 FRONT_X（保险杠/雾灯最外沿）：那些件在 0.6m 高，
+## 拿它们当接触面会让胸前的驾驶室退到 0.4m 外。按现在这组值，
+## 大灯离髋部只剩几厘米，低处的保险杠会压进膝盖一点 ——
+## 那一截在肩后机位里被身体挡住，且白闪紧接着就盖上，看不到穿模。
+const CONTACT_GAP := Truck.CAB_X1 + ACTOR_FRONT + 0.10
+## 撞击前的车速。140km/h ≈ 38.9m/s：26m 出场距离的正常段只跑约 0.5s，
+## 进慢镜头后再约 0.3s 撞上 —— 车灯一亮就到眼前，不给反应时间。
+const CRASH_SPEED := 140.0 / 3.6
 
 enum Phase { WALK, DUSK, CRASH, DEATH, DONE }
 
@@ -86,11 +90,7 @@ var _crash_truck: Node3D
 var _crash_hit := false
 var _wheel_angle := 0.0
 var _slowmo := false
-var _dodge_done := false
-var _dodge_z0 := 0.0
-var _dodge_shift := 0.0
 var _impact_clearance := INF
-var _crash_body: StaticBody3D
 var _horn_near := false
 var _headlight_halo: Node3D
 var _veil
@@ -127,8 +127,6 @@ func _exit_tree() -> void:
 	# 不然下一场（草原）会以 0.35 倍速醒来。
 	if Engine.time_scale != 1.0:
 		Engine.time_scale = 1.0
-	if player != null:
-		player.control_inverted = false
 
 
 # ---------------------------------------------------------------- 对外查询
@@ -160,25 +158,10 @@ func crash_started() -> bool:
 	return _crash_started
 
 
-## 撞车前那一次侧扑有没有发生。probe 用它区分「真的扑了」和「只是改了数值」。
-func dodged() -> bool:
-	return _dodge_done
-
-
-## 侧扑实际产生的横向位移（米）。判定触发但人没动的话，这个值会是 0。
-func dodge_shift() -> float:
-	return _dodge_shift
-
-
-## 撞击那一帧，车头到角色胶囊表面的间隙（米）。负数 = 车头插进身体。
+## 撞击那一帧，驾驶室前脸到角色躯干前缘的可见间隙（米）。
+## 负数 = 前脸已经切进躯干。按设计应保持在 0.10m 左右。
 func impact_clearance() -> float:
 	return _impact_clearance
-
-
-## 撞停后的货车有没有静态碰撞。死亡段会解锁 1.9 秒反向操作，
-## 没有这个盒子玩家能直接走进车模型里。
-func crash_truck_solid() -> bool:
-	return _crash_body != null and is_instance_valid(_crash_body)
 
 
 func death_started() -> bool:
@@ -481,8 +464,6 @@ func trigger_crash() -> void:
 	_slowmo = false
 	_horn_near = false
 	_wheel_angle = 0.0
-	_dodge_done = false
-	_dodge_shift = 0.0
 	_impact_clearance = INF
 	Engine.time_scale = 1.0
 	player.input_locked = true
@@ -502,8 +483,8 @@ func trigger_crash() -> void:
 	_crash_truck.position = Vector3(start_x, 0.0, lane_z)
 	add_child(_crash_truck)
 
-	# 把镜头硬掰向西：玩家没有选择，只能看着灯过来。
-	# 身体也转过去 —— 侧扑要有一个明确的正面基准，否则看起来只是横向漂移。
+	# 把镜头和身体一起硬掰向西：玩家没有选择，只能看着灯过来。
+	# 脚下也不给动 —— 触发瞬间就锁死，这段演出里没有任何可操作的空隙。
 	var d: Vector3 = _crash_truck.global_position - player.global_position
 	player.set_view(rad_to_deg(atan2(-d.x, -d.z)), -0.06)
 	player.face(atan2(d.x, d.z))
@@ -523,19 +504,16 @@ func _step_crash(delta: float) -> void:
 		_slowmo = true
 		Engine.time_scale = 0.35
 		player.add_shake(0.14, 1.6)
-		# 闪避放在慢动作里：这半秒会被拉成近一秒半，侧扑才看得清。
-		_start_dodge()
 	if not _horn_near and gap < 12.0:
 		_horn_near = true
 		_horn_at_truck(5.0)
 
 	# 车道跟着玩家偏。玩家已经锁输入，这一步是视觉上的「它不打算让」，
 	# 和前面轻自动车「擦身而过」形成同一套因果。
-	# 侧扑之后这个跟随会把车头重新对准人 —— 躲了，但没躲掉。
 	truck_z = move_toward(truck_z, clampf(p.z, 0.9, 3.1), 2.4 * delta)
 	_crash_truck.position.z = truck_z
-	_crash_truck.position.x += 11.5 * delta
-	_wheel_angle += 11.5 * delta / Truck.WHEEL_R
+	_crash_truck.position.x += CRASH_SPEED * delta
+	_wheel_angle += CRASH_SPEED * delta / Truck.WHEEL_R
 	_crash_truck.spin(_wheel_angle)
 
 	var gap_now := p.x - _crash_truck.position.x
@@ -546,28 +524,6 @@ func _step_crash(delta: float) -> void:
 		# 宁可少走几厘米，也不能让保险杠插进身体。
 		_crash_truck.position.x = p.x - CONTACT_GAP
 		_on_crash_hit()
-
-
-## 一次徒劳的侧扑。方向选空间大的一侧；贴边时改往路中间扑 ——
-## 路缘有 0.16m 台阶，胶囊没有上台阶逻辑，扑上台阶会被硬截停，像演到一半卡住。
-func _start_dodge() -> void:
-	if _dodge_done or player == null:
-		return
-	_dodge_done = true
-	_dodge_z0 = player.global_position.z
-
-	var side := 1.0 if _dodge_z0 <= 2.0 else -1.0
-	if _dodge_z0 < 0.8:
-		side = 1.0
-	elif _dodge_z0 > 3.2:
-		side = -1.0
-	var target_z := clampf(_dodge_z0 + side * DODGE_DISTANCE, 0.55, 3.45)
-	# 带一点 +X：人本能在往后退，而不只是横着挪。
-	var offset := Vector3(0.10, 0.0, target_z - _dodge_z0)
-
-	player.dodge(offset, 0.46)
-	player.add_shake(0.10, 0.55)
-	_play_at(player.global_position + Vector3(0.0, 0.3, 0.0), Sfx.whoosh(), -2.0)
 
 
 func _horn_at_truck(db: float) -> void:
@@ -592,11 +548,9 @@ func _on_crash_hit() -> void:
 	_death_started = true
 	Engine.time_scale = 1.0
 	if _crash_truck != null:
-		var front_x: float = _crash_truck.global_position.x + Truck.FRONT_X
-		_impact_clearance = (player.global_position.x - PlayerController.BODY_RADIUS) - front_x
+		var front_x: float = _crash_truck.global_position.x + Truck.CAB_X1
+		_impact_clearance = (player.global_position.x - ACTOR_FRONT) - front_x
 		_crash_truck.set_brake(true)
-	_dodge_shift = absf(player.global_position.z - _dodge_z0)
-	_add_crash_blocker()
 	player.knock(Vector3(7.6, 3.2, randf_range(-0.55, 0.55)), 1.1)
 	player.add_shake(0.48, 0.65)
 	hud.flash(Color(1.0, 0.97, 0.9, 0.96), 0.10)
@@ -604,21 +558,6 @@ func _on_crash_hit() -> void:
 	_play_at(player.global_position + Vector3(0.0, 0.8, 0.0), Sfx.static_noise(), -1.0)
 	_start_veil()
 	_death_sequence()
-
-
-## 撞停后补静态碰撞。车的模型没有物理体，而死亡段会解锁 1.9 秒反向操作；
-## 没有它，玩家能直接走进车厢 —— 那是比撞车瞬间更明显的第二处穿模。
-## 盒子只做到车头外沿，不用 L/2：车头比车身中心短 0.26m，
-## 用包围盒会把刚被撞飞的人再顶一下。
-func _add_crash_blocker() -> void:
-	if _crash_truck == null or _crash_body != null:
-		return
-	var t: Vector3 = _crash_truck.global_position
-	var span := Truck.FRONT_X + Truck.L * 0.5
-	var center_x := (Truck.FRONT_X - Truck.L * 0.5) * 0.5
-	_crash_body = CollisionLayout.solid(self,
-		Vector3(t.x + center_x, 1.5, t.z),
-		Vector3(span, 3.0, Truck.W))
 
 
 func _start_veil() -> void:
@@ -640,17 +579,13 @@ func _start_veil() -> void:
 
 ## 视觉 → 听觉 → 触觉。
 ## 视觉先退（去色 + 撕裂 + 黑场），听觉随后（雨声 / 耳鸣），
-## 触觉最后（反向操作失效、镜头不再抖）。中间留给玩家一次「伸手」。
+## 触觉最后（操作从撞车前就锁着，始终没有交还）。
+## 中间留给玩家一次「伸手」—— 那是演出提示，不是移动输入。
 func _death_sequence() -> void:
 	var ok := await _wait(0.95)
 	if not ok:
 		return
 
-	if player != null:
-		# 撞击后的 1.9 秒仍然能操作，但左右是反的。
-		# 这不是刁难：人在这种时候本来就不该还能「正确地逃跑」。
-		player.input_locked = false
-		player.control_inverted = true
 	_veil.fade_param("desat", 0.92, 1.2)
 	_veil.fade_param("block_amount", 0.48, 1.2)
 	_veil.fade_param("noise_amount", 0.11, 1.2)
@@ -660,16 +595,14 @@ func _death_sequence() -> void:
 		return
 
 	if player != null:
-		player.control_inverted = false
-		player.input_locked = true
 		player.reset_motion()
+		# reset_motion 会解锁输入；死亡演出后半段仍然不给操作。
 		player.input_locked = true
-		# 和草原醒来用的是同一组实测值：脚底枢轴，−90° 才是背贴地，+0.19 才不埋土。
-		if player.actor != null:
-			player.actor.rotation_degrees.x = -90.0
-			player.actor.position.y = 0.19
-		# 抬高、拉远，给一个「从上面看见自己」的机位。
-		player.set_camera_profile(6.2, 2.8, 58.0, 0.0, 1.6)
+		# 撞飞落地后保持站立，不再切死亡躺姿；镜头也留在肩后视角，
+		# 不给「从上面看见自己躺在地上」的机位。
+		# 击飞时切过空中姿势，这里要把腿放下来，否则会一直保持收腿的蹲姿。
+		if player.actor != null and player.actor.has_method("set_locomotion"):
+			player.actor.set_locomotion(0.0, 0.0)
 
 	# 视觉熄灭从这一刻开始；听觉慢半拍，触觉（操作）已经先没了。
 	_veil.fade_param("blackout", 1.0, 4.4)
@@ -736,8 +669,6 @@ func _finish() -> void:
 	_phase = Phase.DONE
 	if Engine.time_scale != 1.0:
 		Engine.time_scale = 1.0
-	if player != null:
-		player.control_inverted = false
 
 	if not transition_enabled:
 		return
@@ -763,8 +694,6 @@ func on_transition_lock() -> void:
 	_stopped = true
 	if Engine.time_scale != 1.0:
 		Engine.time_scale = 1.0
-	if player != null:
-		player.control_inverted = false
 	if _veil != null and is_instance_valid(_veil):
 		_veil.queue_free()
 
