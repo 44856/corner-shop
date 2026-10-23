@@ -170,24 +170,34 @@ static func _poles(g: Node3D) -> void:
 static func _lamp(g: Node3D) -> void:
 	var grp := K.group(g, "StreetLamp")
 	var pole_mat := K.toon(Color("#4e535b"), {"shade": 0.55, "rim": 0.28, "line": 0.006})
+	# 弯臂在原来的 Omni 下会被灯头照亮；Spot 只朝下后它是全黑的。
+	# 用一点自发光代替第五盏「照亮灯具自己」的补光，不参与阴影和体积雾。
+	var arm_mat := K.toon(Color("#4e535b"), {"shade": 0.55, "rim": 0.28, "line": 0.006,
+		"emit": Color("#ffc07a"), "emit_amt": 0.12})
 	var base := Vector3(4.35, WALK_Y, 1.55)
 	K.cyl(grp, 0.075, 4.3, base + Vector3(0, 2.15, 0), pole_mat, Vector3.ZERO, 10)
 	K.cyl(grp, 0.14, 0.22, base + Vector3(0, 0.11, 0), pole_mat, Vector3.ZERO, 10)
 	# 弯臂
-	K.strut(grp, base + Vector3(0, 4.24, 0), base + Vector3(0, 4.46, 0.6), 0.06, pole_mat, 8)
-	K.strut(grp, base + Vector3(0, 4.46, 0.6), base + Vector3(0, 4.38, 1.5), 0.055, pole_mat, 8)
+	K.strut(grp, base + Vector3(0, 4.24, 0), base + Vector3(0, 4.46, 0.6), 0.06, arm_mat, 8)
+	K.strut(grp, base + Vector3(0, 4.46, 0.6), base + Vector3(0, 4.38, 1.5), 0.055, arm_mat, 8)
 	# 灯头
 	var head := base + Vector3(0, 4.32, 1.52)
-	K.box(grp, Vector3(0.34, 0.13, 0.62), head, K.toon(Color("#43474e"), {"shade": 0.6, "line": 0.006}))
+	K.box(grp, Vector3(0.34, 0.13, 0.62), head, K.toon(Color("#43474e"), {"shade": 0.6, "line": 0.006,
+		"emit": Color("#ffb972"), "emit_amt": 0.06}))
 	K.box(grp, Vector3(0.29, 0.03, 0.5), head + Vector3(0, -0.07, 0), K.glow(Color("#ffd9a2"), 3.0))
 	K.sphere(grp, 0.24, head + Vector3(0, -0.06, 0), K.soft(Color("#ffb972"), 0.3, 1.8), Vector3.ZERO, 14, 0.6, false)
-	var light := OmniLight3D.new()
+	# 灯头朝下，用 Spot 而不是 Omni：路面光池不变，阴影从立方体 6 面降到 1 面。
+	var light := SpotLight3D.new()
 	light.light_color = Color("#ffc07a")
 	light.light_energy = 1.9
-	light.omni_range = 9.0
-	light.omni_attenuation = 1.5
+	light.spot_range = 9.0
+	light.spot_attenuation = 1.5
+	light.spot_angle = 55.0
+	light.spot_angle_attenuation = 0.4
 	light.shadow_enabled = true
+	light.shadow_bias = 0.05
 	light.position = head + Vector3(0, -0.22, 0)
+	light.rotation_degrees = Vector3(-90.0, 0.0, 0.0)
 	grp.add_child(light)
 
 

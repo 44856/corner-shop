@@ -393,12 +393,14 @@ func _build_canopy(g: Node3D) -> void:
 
 	# 底面六块灯管：深色灯槽 + 冷白发光面。原来的发光片直接贴在屋面上，
 	# 从低角度看就像天花板上贴了六张纸。
+	# 顶灯改成向下的 Spot 后，顶棚底面少了灯泡的漫反射，发光面从 1.05 提到 1.25
+	# 补回一点整体亮度；这不增加任何灯，只让 bloom 自己把顶棚托起来。
 	for px in [11.8, 16.0, 20.2]:
 		for pz in [7.4, 10.6]:
 			K.box(grp, Vector3(3.72, 0.07, 1.94), Vector3(px, 4.80, pz), dark,
 				Vector3.ZERO, false)
 			K.box(grp, Vector3(3.5, 0.02, 1.72), Vector3(px, 4.758, pz),
-				K.glow(Color("#eaf4ff"), 1.05), Vector3.ZERO, false)
+				K.glow(Color("#eaf4ff"), 1.25), Vector3.ZERO, false)
 
 	# 悬吊的 SELF 牌：奶油外框 + 绿面板，双层才有厚度
 	K.box(grp, Vector3(1.58, 0.46, 0.06), Vector3(16.0, 4.15, 9.0), cream)
@@ -430,7 +432,7 @@ func _build_canopy(g: Node3D) -> void:
 		Vector3(0, 180, 0), 0)
 
 	# 顶棚前场的两个冷白光源。只开西侧那盏的阴影：
-	# 立方体阴影很贵，两盏全开等于整个前场多渲染两遍。
+	# 单面阴影虽便宜，但前场几何仍要多画一遍，能省则省。
 	_canopy_light(grp, Vector3(12.6, 4.55, 9.0), 2.0, true)
 	_canopy_light(grp, Vector3(19.4, 4.55, 9.0), 1.8, false)
 
@@ -441,13 +443,21 @@ func _build_canopy(g: Node3D) -> void:
 
 
 func _canopy_light(parent: Node3D, pos: Vector3, energy: float, shadow: bool) -> void:
-	var l := OmniLight3D.new()
+	# 顶棚灯只照下方，改用 Spot：同样是「灯下的白地」，阴影从 6 面降到 1 面。
+	# 代价是顶棚底面不再被灯泡往四面照亮，比原来暗一截。试过补无阴影 Omni
+	# 找回漫反射，实测会吃掉约 2fps；玩家视角里顶棚主要靠六块发光面自己读，
+	# 这点漫反射不值得，就让它暗着（发光面亮度已从 1.05 提到 1.25）。
+	var l := SpotLight3D.new()
 	l.light_color = Color("#d9e9ff")
 	l.light_energy = energy
-	l.omni_range = 11.0
-	l.omni_attenuation = 1.35
+	l.spot_range = 11.0
+	l.spot_attenuation = 1.35
+	l.spot_angle = 55.0
+	l.spot_angle_attenuation = 0.4
 	l.shadow_enabled = shadow
+	l.shadow_bias = 0.05
 	l.position = pos
+	l.rotation_degrees = Vector3(-90.0, 0.0, 0.0)
 	parent.add_child(l)
 
 

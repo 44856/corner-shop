@@ -172,7 +172,9 @@ static func _bicycle(g: Node3D, pos: Vector3, rot_y: float) -> void:
 	# 挡泥板压在轮胎上方
 	K.box(b, Vector3(0.06, 0.02, 0.34), rear + Vector3(0, 0.345, 0.02), dark)
 	K.box(b, Vector3(0.06, 0.02, 0.34), front + Vector3(0, 0.345, -0.02), dark)
-	K.sphere(b, 0.035, Vector3(0, 0.62, 0.72), K.glow(Color("#ffe9b8"), 1.2), Vector3.ZERO, 8, 1.0, false)
+	# 车头灯是停着的车，不该亮：这里原本用 K.glow 做灯罩，自发光没有开关，
+	# 停在店门口也一直发光。改成深色玻璃镜片，保留灯的体积但不发光。
+	K.sphere(b, 0.035, Vector3(0, 0.62, 0.72), K.pbr(Color("#2f363d"), 0.15, 0.4), Vector3.ZERO, 8, 1.0, false)
 
 
 # ---------------------------------------------------------------- 立式招牌 / 地灯 / 猫

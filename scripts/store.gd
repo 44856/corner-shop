@@ -444,16 +444,25 @@ static func _interior(g: Node3D, walkable: bool) -> void:
 	if walkable:
 		_cigarette_rack(it, L["counter"], shelf, shelf_dark)
 
-	# 店内暖光
+	# 店内暖光。三盏都改为向下的 Spot：Omni 的阴影是立方体贴图（6 面），
+	# Spot 只有 1 面；吊灯本来就只该照下半空间，阴影开销降到 1/6。
+	# 不再按原灯位补无阴影 Omni：那三盏只为把天花板提亮，属于纯补光。
+	# 去掉后把主灯能量/射程和灯带亮度提上来，光线仍只从三盏吊灯和灯带出来；
+	# 顶面会比原来暗一截，但灯带自发光足够交代轮廓，不再为它单独挂灯。
 	for p in [Vector3(0.2, 2.5, -1.9), Vector3(0.2, 2.5, -4.1), Vector3(2.0, 2.5, -3.2)]:
-		var l := OmniLight3D.new()
+		var l := SpotLight3D.new()
 		l.light_color = Color("#ffdcae")
-		l.light_energy = 1.0
-		l.omni_range = 3.2
-		l.omni_attenuation = 1.2
+		l.light_energy = 1.35
+		l.spot_range = 4.2
+		l.spot_attenuation = 1.2
+		# 吊灯在 2.5m，55° 的锥主要落在过道；不带补光后墙脚也一起吃暗，
+		# 所以开到 60°，让货架侧面和下墙也落在锥内。再大只会无谓撑大阴影视锥。
+		l.spot_angle = 60.0
+		l.spot_angle_attenuation = 0.4
 		l.shadow_enabled = true
-		l.shadow_bias = 0.08
+		l.shadow_bias = 0.05
 		l.position = p
+		l.rotation_degrees = Vector3(-90.0, 0.0, 0.0)
 		it.add_child(l)
 
 	# 过道补光：三盏主灯挂在 2.5m，光被层板挡得死死的，货架格子里是一片黑，
@@ -469,9 +478,9 @@ static func _interior(g: Node3D, walkable: bool) -> void:
 		fill.position = p
 		it.add_child(fill)
 
-	# 天花板灯带
+	# 天花板灯带：不带补光后天花板只剩环境光，稍微提亮让顶面不至于发黑。
 	for z in [-1.9, -3.0, -4.1]:
-		K.box(it, Vector3(3.4, 0.03, 0.15), Vector3(0.6, 2.9, z), K.glow(Color("#fff0d4"), 1.1), Vector3.ZERO, false)
+		K.box(it, Vector3(3.4, 0.03, 0.15), Vector3(0.6, 2.9, z), K.glow(Color("#fff0d4"), 1.35), Vector3.ZERO, false)
 
 	# 店外暖光溢出
 	var spill := OmniLight3D.new()
@@ -854,16 +863,20 @@ static func _break_room(parent: Node3D, br: Dictionary, shelf: Material, dark: M
 		K.quad(g, Vector2(0.22, 0.012), Vector3(cx + 0.08, 1.74 - i * 0.06, -4.62), K.toon(Color("#8a8578"), {"shade": 0.9, "line": 0.0}), Vector3(0, -90, 0), false)
 
 	# 灯：一盏暖光 + 一条灯带，透到卖场这边就是「有人还在上班」的味道
-	var l := OmniLight3D.new()
+	var l := SpotLight3D.new()
 	l.light_color = Color("#ffd9a8")
 	l.light_energy = 0.62
-	l.omni_range = 2.8
-	l.omni_attenuation = 1.5
+	l.spot_range = 2.8
+	l.spot_attenuation = 1.5
+	l.spot_angle = 55.0
+	l.spot_angle_attenuation = 0.4
 	# 必须开阴影：否则这盏灯会直接穿过隔墙照到卖场，
-	# 收银台那一片会白得像开了顶灯（实测过，不开就过曝）
+	# 收银台那一片会白得像开了顶灯（实测过，不开就过曝）。
+	# 灯在隔间里，改成向下 Spot 后只需要一张单面阴影。
 	l.shadow_enabled = true
-	l.shadow_bias = 0.08
+	l.shadow_bias = 0.05
 	l.position = Vector3(rx, 2.45, -3.2)
+	l.rotation_degrees = Vector3(-90.0, 0.0, 0.0)
 	g.add_child(l)
 	K.box(g, Vector3(1.0, 0.03, 0.14), Vector3(rx, 2.86, -3.2), K.glow(Color("#fff0d4"), 1.0), Vector3.ZERO, false)
 	K.box(g, Vector3(1.0, 0.03, 0.14), Vector3(rx, 2.86, -4.6), K.glow(Color("#fff0d4"), 0.9), Vector3.ZERO, false)
