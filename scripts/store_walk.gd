@@ -382,19 +382,9 @@ func _on_cat() -> void:
 	hud.toast("猫抬头看了你一眼，尾巴尖晃了两下，又趴回干燥的台阶上。", 4.2)
 
 
-## 一次性 3D 音源，播完自己回收
+## 一次性 3D 音效走全局池：不再每次「嗒」一声就生成/销毁一个播放器
 func _play_at(pos: Vector3, stream: AudioStream, db: float = -6.0) -> void:
-	if stream == null:
-		return
-	var p := AudioStreamPlayer3D.new()
-	p.stream = stream
-	p.position = pos
-	p.volume_db = db
-	p.unit_size = 3.0
-	p.max_distance = 14.0
-	add_child(p)
-	p.finished.connect(p.queue_free)
-	p.play()
+	AudioBus.play_3d(stream, pos, {"db": db})
 
 
 # ---------------------------------------------------------------- 截图

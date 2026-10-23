@@ -31,7 +31,6 @@ var _open := false
 var _player: Node3D
 var _tween: Tween
 var _led: MeshInstance3D
-var _chime: AudioStreamPlayer3D
 var _since_clear := 0.0
 
 ## 门洞中心，也是感应器的位置
@@ -41,7 +40,6 @@ const DOOR_CENTER := Vector3(0.355, 1.2, -1.01)
 func _ready() -> void:
 	_build_leaves()
 	_build_sensor_lamp()
-	_build_audio()
 
 
 func bind_player(p: Node3D) -> void:
@@ -95,16 +93,6 @@ func _build_sensor_lamp() -> void:
 	# 灯罩，免得那颗小球看起来像浮在空中的糖
 	K.box(self, Vector3(0.12, 0.05, 0.05), Vector3(DOOR_CENTER.x, 2.505, -0.885),
 		K.toon(Color("#1b2028"), {"line": 0.004}))
-
-
-func _build_audio() -> void:
-	_chime = AudioStreamPlayer3D.new()
-	_chime.stream = Sfx.chime()
-	_chime.position = Vector3(DOOR_CENTER.x, 2.2, -0.9)
-	_chime.unit_size = 4.0
-	_chime.max_distance = 16.0
-	_chime.volume_db = -6.0
-	add_child(_chime)
 
 
 # ---------------------------------------------------------------- 感应
@@ -171,8 +159,14 @@ func set_open(v: bool, instant: bool = false) -> void:
 			Color("#4dffa8") if v else Color("#ff5a3a"),
 			2.4 if v else 1.6)
 
-	if v and not instant and _chime != null:
-		_chime.play()
+	if v and not instant:
+		# 音源挂在门体上：门节点被卸载时，发射器跟着走，不会留在 AudioBus 里
+		AudioBus.play_on(self, Sfx.chime(), {
+			"db": -6.0,
+			"unit_size": 4.0,
+			"max_distance": 16.0,
+			"offset": Vector3(DOOR_CENTER.x, 2.2, -0.9),
+		})
 
 
 func is_open() -> bool:

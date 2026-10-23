@@ -513,17 +513,7 @@ func _on_van() -> void:
 
 
 func _play_at(pos: Vector3, stream: AudioStream, db: float = -6.0) -> void:
-	if stream == null:
-		return
-	var p := AudioStreamPlayer3D.new()
-	p.stream = stream
-	p.position = pos
-	p.volume_db = db
-	p.unit_size = 3.0
-	p.max_distance = 14.0
-	add_child(p)
-	p.finished.connect(p.queue_free)
-	p.play()
+	AudioBus.play_3d(stream, pos, {"db": db})
 
 
 # ---------------------------------------------------------------- 截图
