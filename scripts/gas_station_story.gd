@@ -77,7 +77,7 @@ var _stopped := false
 var _dusk_done := false
 
 var _props: Node3D
-var _radio_audio: AudioStreamPlayer3D
+var _radio: AudioVoice
 var _parked_truck: Node3D
 var _parked_body: StaticBody3D
 var _driver: Node3D
@@ -91,7 +91,7 @@ var _impact_clearance := INF
 var _horn_near := false
 var _headlight_halo: Node3D
 var _veil
-var _tinnitus: AudioStreamPlayer
+var _tinnitus: AudioVoice
 var _dusk_grace := DUSK_GRACE
 var _dusk_hint_t := 0.0
 var _dusk_hint_shown := false
@@ -244,9 +244,9 @@ func _on_radio() -> void:
 	if _radio_heard or _phase != Phase.WALK:
 		return
 	_radio_heard = true
-	if _radio_audio != null:
-		_radio_audio.volume_db = -6.0
-	_play_at(RADIO_TARGET, Sfx.radio(), -4.0)
+	if _radio != null:
+		_radio.volume_db = -6.0
+	_play_at(RADIO_TARGET, Sfx.radio(), -4.0, 3)
 	hud.toast("……国道 17 号，深夜货运高峰。一辆白色厢式货车刚从星见町服务区驶出，"
 		+ "请行人注意来车。……", 5.6)
 	_after_beat(3.2)
@@ -322,7 +322,7 @@ func _step_near_van(delta: float) -> void:
 	var dx: float = _near_van.position.x - player.global_position.x
 	if not _near_whoosh and absf(dx) < 3.4:
 		_near_whoosh = true
-		_play_at(_near_van.global_position + Vector3(0.0, 0.6, 0.0), Sfx.whoosh(), -1.0)
+		_play_at(_near_van.global_position + Vector3(0.0, 0.6, 0.0), Sfx.whoosh(), -1.0, 3)
 		player.add_shake(0.20, 0.45)
 	if _near_van.position.x > 35.0:
 		_near_van.queue_free()
@@ -526,18 +526,18 @@ func _step_crash(delta: float) -> void:
 		_on_crash_hit()
 
 
+## 音源挂在车上：车在 140km/h 下移动，位置必须跟着车走，
+## 而不是钉在鸣笛那一刻的坐标上。
 func _horn_at_truck(db: float) -> void:
 	if _crash_truck == null:
 		return
-	var a := AudioStreamPlayer3D.new()
-	a.stream = Sfx.horn()
-	a.position = Vector3(2.6, 1.0, 0.0)
-	a.volume_db = db
-	a.unit_size = 6.0
-	a.max_distance = 120.0
-	_crash_truck.add_child(a)
-	a.finished.connect(a.queue_free)
-	a.play()
+	AudioBus.play_on(_crash_truck, Sfx.horn(), {
+		"db": db,
+		"unit_size": 6.0,
+		"max_distance": 120.0,
+		"offset": Vector3(2.6, 1.0, 0.0),
+		"priority": 5,
+	})
 
 
 # ---------------------------------------------------------------- 死亡三层
@@ -554,8 +554,8 @@ func _on_crash_hit() -> void:
 	player.knock(Vector3(7.6, 3.2, randf_range(-0.55, 0.55)), 1.1)
 	player.add_shake(0.48, 0.65)
 	hud.flash(Color(1.0, 0.97, 0.9, 0.96), 0.10)
-	_play_at(player.global_position + Vector3(0.0, 0.8, 0.0), Sfx.impact(), 6.0)
-	_play_at(player.global_position + Vector3(0.0, 0.8, 0.0), Sfx.static_noise(), -1.0)
+	_play_at(player.global_position + Vector3(0.0, 0.8, 0.0), Sfx.impact(), 6.0, 6)
+	_play_at(player.global_position + Vector3(0.0, 0.8, 0.0), Sfx.static_noise(), -1.0, 5)
 	_start_veil()
 	_death_sequence()
 
@@ -608,9 +608,8 @@ func _death_sequence() -> void:
 	_veil.fade_param("blackout", 1.0, 4.4)
 	if scene != null and scene.has_method("fade_station_audio"):
 		scene.call("fade_station_audio", 4.2)
-	if _radio_audio != null:
-		var rt := create_tween()
-		rt.tween_property(_radio_audio, "volume_db", -60.0, 4.2)
+	if _radio != null:
+		_radio.fade_to(-60.0, 4.2)
 	_play_tinnitus()
 
 	var ok3 := await _wait(0.8)
@@ -654,8 +653,7 @@ func _death_sequence() -> void:
 
 	_veil.clear_line(0.6)
 	if _tinnitus != null:
-		var tt := create_tween()
-		tt.tween_property(_tinnitus, "volume_db", -60.0, 1.2)
+		_tinnitus.fade_to(-60.0, 1.2)
 	var ok8 := await _wait(1.4)
 	if not ok8:
 		return
@@ -729,18 +727,15 @@ func _build_radio() -> void:
 		K.cyl(g, 0.022, 0.018, Vector3(0.158, 0.055, z), chrome, Vector3(0, 0, 90), 10)
 	K.strut(g, Vector3(0.06, 0.19, -0.14), Vector3(0.20, 0.39, -0.22), 0.006, chrome, 4, false)
 
-	_radio_audio = AudioStreamPlayer3D.new()
-	var s := Sfx.radio()
-	s.loop_mode = AudioStreamWAV.LOOP_FORWARD
-	s.loop_begin = 0
-	s.loop_end = int(s.get_length() * float(s.mix_rate))
-	_radio_audio.stream = s
-	_radio_audio.position = RADIO_TARGET
-	_radio_audio.volume_db = -20.0
-	_radio_audio.unit_size = 1.6
-	_radio_audio.max_distance = 9.0
-	add_child(_radio_audio)
-	_radio_audio.play()
+	# 声道内部会复制一份循环流，不会把 Sfx.radio() 的静态缓存改成 loop。
+	_radio = AudioBus.channel(&"story.radio", Sfx.radio(), {
+		"bus": AudioBus.BUS_SFX,
+		"db": -20.0,
+		"pos": RADIO_TARGET,
+		"unit_size": 1.6,
+		"max_distance": 9.0,
+		"owner": self,
+	})
 
 
 func _build_parked_truck() -> void:
@@ -798,25 +793,15 @@ func _intro_hint() -> void:
 
 # ---------------------------------------------------------------- 声音
 
-func _play_at(pos: Vector3, stream: AudioStream, db: float = -4.0) -> void:
-	if stream == null:
-		return
-	var p := AudioStreamPlayer3D.new()
-	p.stream = stream
-	p.position = pos
-	p.volume_db = db
-	p.unit_size = 3.4
-	p.max_distance = 28.0
-	add_child(p)
-	p.finished.connect(p.queue_free)
-	p.play()
+func _play_at(pos: Vector3, stream: AudioStream, db: float = -4.0,
+		priority: int = 0) -> void:
+	AudioBus.play_3d(stream, pos, {
+		"db": db,
+		"unit_size": 3.4,
+		"max_distance": 28.0,
+		"priority": priority,
+	})
 
 
 func _play_tinnitus() -> void:
-	if _tinnitus != null:
-		return
-	_tinnitus = AudioStreamPlayer.new()
-	_tinnitus.stream = Sfx.tinnitus()
-	_tinnitus.volume_db = -13.0
-	add_child(_tinnitus)
-	_tinnitus.play()
+	_tinnitus = AudioBus.play_2d(Sfx.tinnitus(), {"db": -13.0, "priority": 5})

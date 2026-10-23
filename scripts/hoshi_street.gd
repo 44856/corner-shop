@@ -89,8 +89,8 @@ var _shooting := false
 ## SceneRouter 在 _ready 里交给本场景的「我是怎么来的」。取一次就清空。
 var _arrival: Dictionary = {}
 var _shadow: MeshInstance3D
-var _rain: AudioStreamPlayer
-var _hum: AudioStreamPlayer
+var _rain: AudioVoice
+var _hum: AudioVoice
 var _intro_cam: Camera3D
 var _intro_tween: Tween
 
@@ -236,22 +236,18 @@ func _setup_portals() -> void:
 
 
 func _setup_audio() -> void:
-	_rain = _looping_player("res://audio/rain_loop.wav", -14.0)
-	_hum = _looping_player("res://audio/drone_loop.wav", -38.0)
-
-
-func _looping_player(path: String, db: float) -> AudioStreamPlayer:
-	var p := AudioStreamPlayer.new()
-	var s := load(path) as AudioStreamWAV
-	if s != null:
-		s.loop_mode = AudioStreamWAV.LOOP_FORWARD
-		s.loop_begin = 0
-		s.loop_end = int(s.get_length() * float(s.mix_rate))
-		p.stream = s
-	p.volume_db = db
-	add_child(p)
-	p.play()
-	return p
+	# 声道名跨场景固定：走进商店街 / 加油站时同名申请会接管，雨声不会重启成两层。
+	# owner 绑场景根，场景卸载时由 AudioBus 负责淡出，不用自己 stop。
+	_rain = AudioBus.channel(&"rain", load("res://audio/rain_loop.wav"), {
+		"bus": AudioBus.BUS_AMBIENCE,
+		"db": -14.0,
+		"owner": self,
+	})
+	_hum = AudioBus.channel(&"hum", load("res://audio/drone_loop.wav"), {
+		"bus": AudioBus.BUS_AMBIENCE,
+		"db": -38.0,
+		"owner": self,
+	})
 
 
 # ---------------------------------------------------------------- 西口
@@ -535,17 +531,7 @@ func _on_van() -> void:
 
 
 func _play_at(pos: Vector3, stream: AudioStream, db: float = -6.0) -> void:
-	if stream == null:
-		return
-	var p := AudioStreamPlayer3D.new()
-	p.stream = stream
-	p.position = pos
-	p.volume_db = db
-	p.unit_size = 3.0
-	p.max_distance = 14.0
-	add_child(p)
-	p.finished.connect(p.queue_free)
-	p.play()
+	AudioBus.play_3d(stream, pos, {"db": db})
 
 
 # ---------------------------------------------------------------- 截图
