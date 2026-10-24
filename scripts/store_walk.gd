@@ -57,8 +57,8 @@ var _inside := false
 var _zone := "side"
 var _shooting := false
 var _shadow: MeshInstance3D
-var _rain: AudioStreamPlayer
-var _hum: AudioStreamPlayer
+var _rain: AudioVoice
+var _hum: AudioVoice
 var _intro_cam: Camera3D
 var _intro_tween: Tween
 
@@ -197,8 +197,18 @@ func _setup_interactions() -> void:
 
 
 func _setup_audio() -> void:
-	_rain = _looping_player("res://audio/rain_loop.wav", -15.0)
-	_hum = _looping_player("res://audio/drone_loop.wav", -40.0)
+	# 声道名跨场景固定：走进商店街 / 加油站时同名申请会接管，雨声不会重启成两层。
+	# owner 绑场景根，场景卸载时由 AudioBus 负责淡出，不用自己 stop。
+	_rain = AudioBus.channel(&"rain", load("res://audio/rain_loop.wav"), {
+		"bus": AudioBus.BUS_AMBIENCE,
+		"db": -15.0,
+		"owner": self,
+	})
+	_hum = AudioBus.channel(&"hum", load("res://audio/drone_loop.wav"), {
+		"bus": AudioBus.BUS_AMBIENCE,
+		"db": -40.0,
+		"owner": self,
+	})
 
 
 ## 马路车祸：独立节点，自己盯着「人是不是站在车行道上」
@@ -207,20 +217,6 @@ func _setup_truck_event() -> void:
 	truck_event.name = "TruckEvent"
 	add_child(truck_event)
 	truck_event.bind(player, hud)
-
-
-func _looping_player(path: String, db: float) -> AudioStreamPlayer:
-	var p := AudioStreamPlayer.new()
-	var s := load(path) as AudioStreamWAV
-	if s != null:
-		s.loop_mode = AudioStreamWAV.LOOP_FORWARD
-		s.loop_begin = 0
-		s.loop_end = int(s.get_length() * float(s.mix_rate))
-		p.stream = s
-	p.volume_db = db
-	add_child(p)
-	p.play()
-	return p
 
 
 # ---------------------------------------------------------------- 开场
@@ -386,19 +382,9 @@ func _on_cat() -> void:
 	hud.toast("猫抬头看了你一眼，尾巴尖晃了两下，又趴回干燥的台阶上。", 4.2)
 
 
-## 一次性 3D 音源，播完自己回收
+## 一次性 3D 音效走全局池：不再每次「嗒」一声就生成/销毁一个播放器
 func _play_at(pos: Vector3, stream: AudioStream, db: float = -6.0) -> void:
-	if stream == null:
-		return
-	var p := AudioStreamPlayer3D.new()
-	p.stream = stream
-	p.position = pos
-	p.volume_db = db
-	p.unit_size = 3.0
-	p.max_distance = 14.0
-	add_child(p)
-	p.finished.connect(p.queue_free)
-	p.play()
+	AudioBus.play_3d(stream, pos, {"db": db})
 
 
 # ---------------------------------------------------------------- 截图
