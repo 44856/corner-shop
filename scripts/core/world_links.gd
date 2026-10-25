@@ -8,6 +8,9 @@ extends RefCounted
 ## 覆盖项与 default 做浅合并，所以「只禁用、不改目标」只写 enabled:false 就够。
 
 const SCENES := {
+	# 主菜单也登记：它不参与世界线，但「从菜单进游戏」这件事要靠 from_scene 说清楚，
+	# 而且 bind_scene() 只认这张表。没有出口（ROUTES 里不出现），所以不可被 goto 回来。
+	&"main_menu": {"path": "res://scenes/main_menu.tscn"},
 	&"store_walk": {"path": "res://scenes/store_walk.tscn"},
 	&"hoshi_street": {"path": "res://scenes/hoshi_street.tscn"},
 	&"gas_station": {"path": "res://scenes/gas_station.tscn"},

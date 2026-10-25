@@ -6,7 +6,8 @@
 
 | 版本 | 场景 | 玩法 |
 | --- | --- | --- |
-| **可玩版**（默认入口） | `scenes/store_walk.tscn` | 第三人称走进便利店：自动门、店内交互、跟随镜头；进过店再下马路会被货车撞 |
+| **主菜单**（默认入口） | `scenes/main_menu.tscn` | 开始 · 继续 · 设置 · 退出。背景是程序化绘制的上午草原空镜（云 / 草叶 / 飞鸟都按固定种子生成，可截图回归）；「继续」在存档落地前置灰 |
+| **可玩版** | `scenes/store_walk.tscn` | 第三人称走进便利店：自动门、店内交互、跟随镜头；进过店再下马路会被货车撞 |
 | **商店街可玩版**（扩展） | `scenes/hoshi_street.tscn` | 35.6m 日式商店街：出生在东口牌楼内侧、面朝西；两排店面 / 候车亭 / 斑马线，沿街走到西端进同一家便利店 |
 | **加油站剧情版**（扩展） | `scenes/gas_station.tscn` | 雨夜服务区：收音机 / 司机 / 擦身车三件小事之后进入逢魔时，国道车祸 → 死亡演出 → 异世界草原 |
 | 微缩展示版 | `scenes/main.tscn` | 轨道相机俯瞰整个 11.2m 底座，原版编排 |
@@ -20,7 +21,8 @@
 ## 运行
 
 ```bash
-./tools/run.sh              # 默认入口：store_walk（微缩全景推镜 → 第三人称）
+./tools/run.sh              # 默认入口：main_menu（开始后才进 store_walk）
+./tools/run.sh store_walk   # 跳过菜单直接进便利店
 ./tools/run.sh list         # 看有哪些场景能跑
 ```
 
@@ -120,7 +122,8 @@ GODOT_BIN=/path/to/godot ./tools/run.sh
 ## 场景构成
 
 ```
-scenes/store_walk.tscn  可玩版入口（第三人称 + 交互）
+scenes/main_menu.tscn   主菜单入口（登录屏：开始 / 继续 / 设置 / 退出）
+scenes/store_walk.tscn  可玩版（第三人称 + 交互）
 scenes/hoshi_street.tscn 商店街可玩版（35.6m 双排街区）
 scenes/gas_station.tscn 加油站剧情版（雨夜服务区 → 逢魔时 → 车祸 → 草原）
 scenes/main.tscn        微缩展示版（只挂 main.gd）
@@ -156,6 +159,12 @@ scripts/core/scene_router.gd 场景切换唯一入口：查路由 / 到达上下
 scripts/core/portal_host.gd 场景本地出口：走路触发盒 + E 提示，按路由启停
 scripts/audio/audio_bus.gd  全局音频入口：一次性音效合并 / 3D 池 / 命名声道 / 总线淡变
 scripts/audio/audio_voice.gd 统一播放句柄：专用播放器与复音流 id 的同一套接口
+scripts/ui/main_menu.gd     主菜单编排：标题 / 按钮列 / 设置面板 / 音量落盘（user://menu.cfg）
+scripts/ui/menu_palette.gd  菜单配色与字体变体（墨绿 / 青草绿 / 米白三层）
+scripts/ui/menu_sky.gd      菜单静态背景：天空渐变 / 远山 / 三层草坡（只在尺寸变化时重绘）
+scripts/ui/menu_drift.gd    菜单动态层：云 / 草叶 / 飞鸟 / 花粉（固定种子，每帧重绘）
+scripts/ui/menu_button.gd   清脆方框按钮（悬停反色 + 位移 + 0.09s 过渡）
+scripts/ui/menu_slider.gd   方框滑条（自绘：轨道 / 刻度 / 手柄）
 scripts/backup/diorama_orbit.gd 改造前编排的冻结副本
 scripts/dialogue/       对话解析与播放（草原用）
 shaders/                三渲二 / 描边 / 砖缝 / 玻璃 / 自发光 / 湿光 / 车灯光束 / 雨 / 涟漪 / 死亡面纱
