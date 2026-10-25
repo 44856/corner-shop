@@ -21,6 +21,7 @@ const PlayerController := preload("res://scripts/player_controller.gd")
 const Dog := preload("res://scripts/dog.gd")
 const CityWall := preload("res://scripts/city_wall.gd")
 const TownPlan := preload("res://scripts/town_plan.gd")
+const AdventurerDistrict := preload("res://scripts/adventurer_district.gd")
 const Guild := preload("res://scripts/guild.gd")
 const NpcGuard := preload("res://scripts/npc_guard.gd")
 const DialogueRunnerScript := preload("res://scripts/dialogue/dialogue_runner.gd")
@@ -117,6 +118,7 @@ func _ready() -> void:
 	_setup_ground()
 	_setup_hills()
 	_setup_city_wall()
+	_setup_adventurer_district()
 	_setup_guild()
 	_setup_gate_npcs()
 	_setup_guild_clerks()
@@ -326,6 +328,13 @@ func _setup_hills() -> void:
 ## 地基范围（x±150、z 300~630）是硬约束，改了铺装尺寸这里也要跟着改。
 func _setup_city_wall() -> void:
 	CityWall.build(self)
+
+
+# ---------------------------------------------------------------- 冒险者区
+
+## 贯城大街东侧的一排装备店。避开了公会占的 z 386~414，分成南北两段。
+func _setup_adventurer_district() -> void:
+	AdventurerDistrict.build(self)
 
 
 # ---------------------------------------------------------------- 冒险者公会
