@@ -425,15 +425,32 @@ func _setup_shopkeepers() -> void:
 			"pos": Vector3(8.8, 0.0, 442.4), "h": 1.80, "phase": 5.9,
 			"stance": "guard_b", "dialogue": "res://dialogue/shop_tavern.txt",
 			"prompt": "和酒場老板说话"},
+		# ---- 第二排（沿十字路，立面 z=456）。店门在各自 cx−1.6，
+		# 店主站到门前（z=457.6），面朝 +Z（朝十字路）
+		{"name": "ShopInn", "model": "res://assets/npc/skadi.glb",
+			"pos": Vector3(28.4, 0.0, 457.6), "h": 1.76, "phase": 1.1,
+			"stance": "guard_a", "dialogue": "res://dialogue/shop_inn.txt",
+			"prompt": "和宿屋老板说话", "face": Vector3(0.06, 0.0, 1.0)},
+		{"name": "ShopHarness", "model": "res://assets/npc/isaac.glb",
+			"pos": Vector3(40.4, 0.0, 457.6), "h": 1.83, "phase": 3.6,
+			"stance": "guard_b", "dialogue": "res://dialogue/shop_harness.txt",
+			"prompt": "和馬具屋匠人说话", "face": Vector3(-0.05, 0.0, 1.0)},
+		{"name": "ShopCurio", "model": "res://assets/npc/isaac.glb",
+			"pos": Vector3(52.4, 0.0, 457.6), "h": 1.74, "phase": 4.9,
+			"stance": "guard_b", "dialogue": "res://dialogue/shop_curio.txt",
+			"prompt": "和古道具屋老板说话", "face": Vector3(0.03, 0.0, 1.0)},
 	]
 	for s in specs:
 		var npc := NpcGuard.new()
 		npc.name = s["name"]
 		npc.model_path = s["model"]
 		npc.position = s["pos"]
-		# 面朝大街（−X），各偏 10° 左右，免得六个人像列队
-		var tilt: float = float(s["phase"]) * 0.03
-		npc.face_dir = Vector3(-1.0, 0.0, tilt)
+		# 第一排朝大街（−X），第二排朝十字路（+Z）。
+		# 默认用 phase 算一点微偏，免得一排人像列队；需要特判的走 face 字段。
+		if s.has("face"):
+			npc.face_dir = s["face"]
+		else:
+			npc.face_dir = Vector3(-1.0, 0.0, float(s["phase"]) * 0.03)
 		npc.stance = s["stance"]
 		npc.phase_offset = s["phase"]
 		npc.target_height = s["h"]
