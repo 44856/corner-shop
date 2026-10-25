@@ -20,6 +20,41 @@ extends RefCounted
 
 const K := preload("res://scripts/kit.gd")
 
+# ---------------------------------------------------------------- 摆放
+#
+# 内部所有坐标都是「局部坐标」（原来那坨 x −140~−112、z 316~341）。
+# 城镇分区之后，公会应该在冒险者区、大门朝主街，和这套局部坐标差 90°。
+#
+# 与其把上百个绝对坐标手改一遍（必错），不如给整栋楼套一个父节点变换：
+# build() 挂在带变换的节点下，_solid 的碰撞体也跟着走；
+# 只有对外暴露的站位（CLERK_POS / BOARD_POS）要过一次 world() 换算。
+
+static var _place := Transform3D.IDENTITY
+
+
+## 把公会摆到世界坐标 center、绕 Y 轴转 yaw_rad。返回承载它的节点（作为 build 的 parent）。
+static func place(parent: Node3D, center: Vector3, yaw_rad: float) -> Node3D:
+	var local_center := Vector3((X0 + X1) * 0.5, 0.0, (Z0 + Z1) * 0.5)
+	var basis := Basis(Vector3.UP, yaw_rad)
+	var node := K.group(parent, "GuildPlacement")
+	node.transform = Transform3D(basis, center - basis * local_center)
+	_place = node.transform
+	return node
+
+
+## 公会局部坐标 → 世界坐标。
+## 摆 NPC、注册交互点、判断「玩家是不是在大厅里」都必须走这里，
+## 否则搬了公会，人还站在原地。
+static func world(p: Vector3) -> Vector3:
+	return _place * p
+
+
+## 方向同样要过一遍变换：NPC 的朝向是局部方向（比如都朝 −Z），
+## 公会转了 90°，人也得跟着转。
+static func world_dir(d: Vector3) -> Vector3:
+	var r := _place.basis * d
+	return r.normalized()
+
 # ---------------------------------------------------------------- 尺寸
 #
 # 这些常量同时是 grassland.gd 摆 NPC / 注册交互点的依据，

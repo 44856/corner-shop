@@ -20,6 +20,7 @@ const GROUND_SHADER := preload("res://shaders/ground.gdshader")
 const PlayerController := preload("res://scripts/player_controller.gd")
 const Dog := preload("res://scripts/dog.gd")
 const CityWall := preload("res://scripts/city_wall.gd")
+const TownPlan := preload("res://scripts/town_plan.gd")
 const Guild := preload("res://scripts/guild.gd")
 const NpcGuard := preload("res://scripts/npc_guard.gd")
 const DialogueRunnerScript := preload("res://scripts/dialogue/dialogue_runner.gd")
@@ -274,6 +275,9 @@ func _ground_material(paving: bool) -> ShaderMaterial:
 	m.set_shader_parameter("marble_z1", MARBLE_Z1)
 	m.set_shader_parameter("marble_half_w", MARBLE_HALF_W)
 	m.set_shader_parameter("paving_amount", 1.0 if paving else 0.0)
+	# 城内路网：贯城直道 + 十字路，位置来自 town_plan.gd
+	m.set_shader_parameter("street_half", TownPlan.STREET_HALF)
+	m.set_shader_parameter("cross_z", TownPlan.CROSS_Z)
 	return m
 
 
@@ -326,11 +330,15 @@ func _setup_city_wall() -> void:
 
 # ---------------------------------------------------------------- 冒险者公会
 
-## 城镇西南角的冒险者公会。体量、门窗、楼梯全部在 guild.gd 里，
-## 这里只负责「把它放到场景里」—— 布局常量在 guild.gd 上是公开的，
-## 摆 NPC 和注册交互点直接读，不在这里重复写一遍坐标。
+## 冒险者公会在「右下 / 冒险者区」，大门正对贯城大街（朝 −X）。
+##
+## 体量、门窗、楼梯全部在 guild.gd 里；它内部的坐标是一套局部坐标，
+## 这里用 Guild.place() 套一层变换把它搬到规划位置，再 build。
+## 之后所有对外暴露的站位都要用 Guild.world() / world_dir() 换算。
 func _setup_guild() -> void:
-	Guild.build(self)
+	var holder := Guild.place(self, TownPlan.GUILD_CENTER,
+		deg_to_rad(TownPlan.GUILD_YAW_DEG))
+	Guild.build(holder)
 
 
 # ---------------------------------------------------------------- 公会接待
@@ -346,11 +354,11 @@ func _setup_guild() -> void:
 func _setup_guild_clerks() -> void:
 	var specs := [
 		{"name": "ClerkIsaac", "path": "res://assets/npc/isaac.glb",
-			"pos": Guild.CLERK_POS[0], "stance": "guard_a", "phase": 0.0,
-			"face": Vector3(0.12, 0.0, -1.0), "h": 1.80},
+			"pos": Guild.world(Guild.CLERK_POS[0]), "stance": "guard_a", "phase": 0.0,
+			"face": Guild.world_dir(Vector3(0.12, 0.0, -1.0)), "h": 1.80},
 		{"name": "ClerkSkadi", "path": "res://assets/npc/skadi.glb",
-			"pos": Guild.CLERK_POS[1], "stance": "guard_b", "phase": 5.1,
-			"face": Vector3(-0.10, 0.0, -1.0), "h": 1.76},
+			"pos": Guild.world(Guild.CLERK_POS[1]), "stance": "guard_b", "phase": 5.1,
+			"face": Guild.world_dir(Vector3(-0.10, 0.0, -1.0)), "h": 1.76},
 	]
 	for s in specs:
 		var npc := NpcGuard.new()
@@ -610,7 +618,8 @@ func _setup_interaction() -> void:
 	# 公会的两块任务板。内容是空的，但交互点先接上 ——
 	# 以后填任务文案只改回调，不动布局
 	for p in Guild.BOARD_POS:
-		hub.add_target(p + Vector3(0.0, 1.4, 0.0), Guild.BOARD_RADIUS, "查看任务板",
+		# BOARD_POS 是公会的局部坐标，搬到冒险者区之后必须换算
+		hub.add_target(Guild.world(p) + Vector3(0.0, 1.4, 0.0), Guild.BOARD_RADIUS, "查看任务板",
 			func() -> void: hud.toast("任务板还是空的。公会还没正式开张。", 3.0))
 
 
@@ -632,9 +641,17 @@ func _process(_delta: float) -> void:
 	var z: float = player.global_position.z
 	var p: Vector3 = player.global_position
 	var zone := "草原"
-	if p.x >= Guild.X0 - 0.4 and p.x <= Guild.X1 + 0.4 \
-			and p.z >= Guild.Z0 and p.z <= Guild.Z1 + 0.4:
-		zone = "冒险者公会 · 大厅"
+
+	if z >= TownPlan.Z_GATE and z <= TownPlan.Z_BACK:
+		# 进城之后按规划分区报地名。公会大厅单独判一次 ——
+		# 它已经搬到冒险者区，用世界中心 + 半尺寸比，绝不能再拿局部坐标判。
+		var dx: float = absf(p.x - TownPlan.GUILD_CENTER.x)
+		var dz: float = absf(p.z - TownPlan.GUILD_CENTER.z)
+		# 公会转 90° 后在世界里是 25 宽（X）× 28 深（Z），各取一半留点余量
+		if dx <= 13.0 and dz <= 14.5:
+			zone = "冒险者公会 · 大厅"
+		else:
+			zone = TownPlan.zone_at(p)
 	elif z >= MARBLE_Z1:
 		zone = "广场 · 大理石"
 	elif z >= ROAD_LENGTH:
