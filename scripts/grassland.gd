@@ -122,6 +122,7 @@ func _ready() -> void:
 	_setup_guild()
 	_setup_gate_npcs()
 	_setup_guild_clerks()
+	_setup_shopkeepers()
 	_setup_player()
 	_setup_dog()
 	_setup_dialogue()
@@ -386,6 +387,66 @@ func _setup_guild_clerks() -> void:
 		guards.append({"node": npc, "dialogue": "", "clerk": true})
 
 
+# ---------------------------------------------------------------- 店主
+
+## 冒险者区六间店各站一个店主。
+##
+## 位置照 adventurer_district.gd 的店门走：立面在 x=10，门开在每间店的 cz−1.6，
+## 店主站在门前的步道上（x=8.8），面朝大街（−X）。
+##
+## 身高在 1.72~1.86 之间故意错开，模型 i/s 交替 —— 六个人如果一样高、
+## 同一个模型、同一个姿势，走一趟街会发现自己在看复制粘贴。
+##
+## 台词是各自独立的短对话，走的是同一套 dialogue_runner。
+## 「店还没开张」这件事写在对话里，比在门板上贴张告示自然。
+func _setup_shopkeepers() -> void:
+	var specs := [
+		{"name": "ShopWeapon", "model": "res://assets/npc/isaac.glb",
+			"pos": Vector3(8.8, 0.0, 314.4), "h": 1.84, "phase": 0.0,
+			"stance": "guard_a", "dialogue": "res://dialogue/shop_weapon.txt",
+			"prompt": "和武具店老板说话"},
+		{"name": "ShopArmor", "model": "res://assets/npc/skadi.glb",
+			"pos": Vector3(8.8, 0.0, 330.4), "h": 1.78, "phase": 1.7,
+			"stance": "guard_b", "dialogue": "res://dialogue/shop_armor.txt",
+			"prompt": "和防具店老板说话"},
+		{"name": "ShopPotion", "model": "res://assets/npc/isaac.glb",
+			"pos": Vector3(8.8, 0.0, 346.4), "h": 1.72, "phase": 3.1,
+			"stance": "guard_b", "dialogue": "res://dialogue/shop_potion.txt",
+			"prompt": "和薬師屋老板说话"},
+		{"name": "ShopSmith", "model": "res://assets/npc/isaac.glb",
+			"pos": Vector3(8.8, 0.0, 362.4), "h": 1.86, "phase": 4.4,
+			"stance": "guard_a", "dialogue": "res://dialogue/shop_smith.txt",
+			"prompt": "和鍛冶屋老板说话"},
+		{"name": "ShopGoods", "model": "res://assets/npc/skadi.glb",
+			"pos": Vector3(8.8, 0.0, 426.4), "h": 1.75, "phase": 2.3,
+			"stance": "guard_a", "dialogue": "res://dialogue/shop_goods.txt",
+			"prompt": "和雑貨店老板说话"},
+		{"name": "ShopTavern", "model": "res://assets/npc/skadi.glb",
+			"pos": Vector3(8.8, 0.0, 442.4), "h": 1.80, "phase": 5.9,
+			"stance": "guard_b", "dialogue": "res://dialogue/shop_tavern.txt",
+			"prompt": "和酒場老板说话"},
+	]
+	for s in specs:
+		var npc := NpcGuard.new()
+		npc.name = s["name"]
+		npc.model_path = s["model"]
+		npc.position = s["pos"]
+		# 面朝大街（−X），各偏 10° 左右，免得六个人像列队
+		var tilt: float = float(s["phase"]) * 0.03
+		npc.face_dir = Vector3(-1.0, 0.0, tilt)
+		npc.stance = s["stance"]
+		npc.phase_offset = s["phase"]
+		npc.target_height = s["h"]
+		# 店员站在门边，注视半径收到 4 m
+		npc.notice_radius = 4.0
+		add_child(npc)
+		guards.append({
+			"node": npc,
+			"dialogue": s["dialogue"],
+			"prompt": s["prompt"],
+		})
+
+
 # ---------------------------------------------------------------- 城门 NPC
 
 ## 两个守卫站在城门内侧，面朝城外（-Z），等着玩家从大路上走过来。
@@ -621,7 +682,9 @@ func _setup_interaction() -> void:
 				func() -> void: hud.toast("接待员正忙着整理名册，暂时没空理你。", 3.0))
 		else:
 			var path: String = g["dialogue"]
-			hub.add_target(pos, GUARD_TALK_RADIUS, "和守卫说话",
+			# 提示文案按角色走：守卫、店主各说各的，别让人在店门口看到「和守卫说话」
+			var prompt: String = g.get("prompt", "和守卫说话")
+			hub.add_target(pos, GUARD_TALK_RADIUS, prompt,
 				func() -> void: _talk_guard(path))
 
 	# 公会的两块任务板。内容是空的，但交互点先接上 ——
