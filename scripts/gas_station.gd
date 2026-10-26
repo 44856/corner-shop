@@ -1340,9 +1340,14 @@ func _setup_story() -> void:
 
 
 func _setup_audio() -> void:
-	# 声道名跨场景固定：走进商店街 / 加油站时同名申请会接管，雨声不会重启成两层。
+	# 声道名跨场景固定：同名申请会接管还在淡出的旧声道，雨声不会叠成两层。
+	#
+	# 「接管」的无缝续播只对同一个 stream 成立（AudioBus.channel 比的是 source）。
+	# 加油站用的是自己那条 60s 雨声：铁皮顶棚的鼓动 + 顶棚上的金属雨点 +
+	# 国道 17 号的车流，和商店街的湿路面版是两种东西，跨场景是换带不是续播——
+	# 中间隔着黑卡转场，换带听不出来。
 	# owner 绑场景根，场景卸载时由 AudioBus 负责淡出，不用自己 stop。
-	_rain = AudioBus.channel(&"rain", load("res://audio/rain_loop.wav"), {
+	_rain = AudioBus.channel(&"rain", load("res://audio/gas_station_rain_loop.wav"), {
 		"bus": AudioBus.BUS_AMBIENCE,
 		"db": -14.0,
 		"owner": self,
