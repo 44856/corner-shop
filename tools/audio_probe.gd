@@ -11,6 +11,7 @@ extends Node
 ##   - 循环用的是流副本，不会把 Sfx 的静态缓存改成循环。
 
 const Sfx := preload("res://scripts/sfx.gd")
+const WorldLinks := preload("res://scripts/core/world_links.gd")
 
 var _pass := 0
 var _fail := 0
@@ -30,9 +31,11 @@ func _run() -> void:
 	if bus == null:
 		return
 
-	_check("默认入口仍是 store_walk",
-			ProjectSettings.get_setting("application/run/main_scene")
-			== "res://scenes/store_walk.tscn")
+	# 入口在 EP.03 从 store_walk 换成了 main_menu。原来这条锁死文件名，一换入口就红；
+	# 它真正想守的是「main_scene 别写成坏路径、别指向没登记的场景」，按这个写才不挡后续调整。
+	var main_scene := str(ProjectSettings.get_setting("application/run/main_scene"))
+	_check("默认入口指向真实存在的场景", ResourceLoader.exists(main_scene))
+	_check("默认入口已在世界连接表登记", _listed(main_scene))
 	_check("Ambience 总线存在", bus.has_bus(&"Ambience"))
 	_check("SFX 总线存在", bus.has_bus(&"SFX"))
 	_check("Music 总线存在", bus.has_bus(&"Music"))
@@ -197,6 +200,15 @@ func _on_watchdog() -> void:
 		return
 	_check("探针在 30s 内跑完", false)
 	_finish()
+
+
+## 这个路径是否在 WorldLinks.SCENES 里登记过。
+## 登记是 bind_scene 的前提：没登记的路径可以直接 load，但拿不到 from_scene 语义。
+func _listed(path: String) -> bool:
+	for key: StringName in WorldLinks.SCENES:
+		if str(WorldLinks.SCENES[key].get("path", "")) == path:
+			return true
+	return false
 
 
 func _check(label: String, ok: bool) -> void:
