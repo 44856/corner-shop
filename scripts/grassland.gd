@@ -20,6 +20,8 @@ const GROUND_SHADER := preload("res://shaders/ground.gdshader")
 const PlayerController := preload("res://scripts/player_controller.gd")
 const Dog := preload("res://scripts/dog.gd")
 const CityWall := preload("res://scripts/city_wall.gd")
+const TownPlan := preload("res://scripts/town_plan.gd")
+const AdventurerDistrict := preload("res://scripts/adventurer_district.gd")
 const Guild := preload("res://scripts/guild.gd")
 const NpcGuard := preload("res://scripts/npc_guard.gd")
 const DialogueRunnerScript := preload("res://scripts/dialogue/dialogue_runner.gd")
@@ -33,6 +35,8 @@ const Hub := preload("res://scripts/interaction_hub.gd")
 ## 将来接「取名系统」时，只要在进入场景前把 dialogue.set_player_name() 调一次，
 ## 或者改这一个常量 —— 剧本文件不用动
 const PLAYER_NAME := "旅人"
+
+const SCENE_ID := &"grassland"
 
 ## 地面边长（米）。整片地形都是土路那种平地，所以尺寸只需盖住「路 + 城镇地面」，
 ## 剩下的交给远景地面。
@@ -100,17 +104,25 @@ var _zone := ""
 var _gate_tip_shown := false
 var _env: Environment
 var _sun: DirectionalLight3D
+## 醒来补间要两秒，远晚于 SceneRouter 清空到达上下文的时刻；
+## 所以在 _ready 里先存一份，后面判断「是不是死过来的」只看它。
+var _arrival: Dictionary = {}
 
 
 func _ready() -> void:
+	SceneRouter.bind_scene(SCENE_ID)
+	_arrival = SceneRouter.consume_arrival()
+
 	_setup_environment()
 	_setup_sun()
 	_setup_ground()
 	_setup_hills()
 	_setup_city_wall()
+	_setup_adventurer_district()
 	_setup_guild()
 	_setup_gate_npcs()
 	_setup_guild_clerks()
+	_setup_shopkeepers()
 	_setup_player()
 	_setup_dog()
 	_setup_dialogue()
@@ -266,6 +278,9 @@ func _ground_material(paving: bool) -> ShaderMaterial:
 	m.set_shader_parameter("marble_z1", MARBLE_Z1)
 	m.set_shader_parameter("marble_half_w", MARBLE_HALF_W)
 	m.set_shader_parameter("paving_amount", 1.0 if paving else 0.0)
+	# 城内路网：贯城直道 + 十字路，位置来自 town_plan.gd
+	m.set_shader_parameter("street_half", TownPlan.STREET_HALF)
+	m.set_shader_parameter("cross_z", TownPlan.CROSS_Z)
 	return m
 
 
@@ -316,13 +331,24 @@ func _setup_city_wall() -> void:
 	CityWall.build(self)
 
 
+# ---------------------------------------------------------------- 冒险者区
+
+## 贯城大街东侧的一排装备店。避开了公会占的 z 386~414，分成南北两段。
+func _setup_adventurer_district() -> void:
+	AdventurerDistrict.build(self)
+
+
 # ---------------------------------------------------------------- 冒险者公会
 
-## 城镇西南角的冒险者公会。体量、门窗、楼梯全部在 guild.gd 里，
-## 这里只负责「把它放到场景里」—— 布局常量在 guild.gd 上是公开的，
-## 摆 NPC 和注册交互点直接读，不在这里重复写一遍坐标。
+## 冒险者公会在「右下 / 冒险者区」，大门正对贯城大街（朝 −X）。
+##
+## 体量、门窗、楼梯全部在 guild.gd 里；它内部的坐标是一套局部坐标，
+## 这里用 Guild.place() 套一层变换把它搬到规划位置，再 build。
+## 之后所有对外暴露的站位都要用 Guild.world() / world_dir() 换算。
 func _setup_guild() -> void:
-	Guild.build(self)
+	var holder := Guild.place(self, TownPlan.GUILD_CENTER,
+		deg_to_rad(TownPlan.GUILD_YAW_DEG))
+	Guild.build(holder)
 
 
 # ---------------------------------------------------------------- 公会接待
@@ -338,11 +364,11 @@ func _setup_guild() -> void:
 func _setup_guild_clerks() -> void:
 	var specs := [
 		{"name": "ClerkIsaac", "path": "res://assets/npc/isaac.glb",
-			"pos": Guild.CLERK_POS[0], "stance": "guard_a", "phase": 0.0,
-			"face": Vector3(0.12, 0.0, -1.0), "h": 1.80},
+			"pos": Guild.world(Guild.CLERK_POS[0]), "stance": "guard_a", "phase": 0.0,
+			"face": Guild.world_dir(Vector3(0.12, 0.0, -1.0)), "h": 1.80},
 		{"name": "ClerkSkadi", "path": "res://assets/npc/skadi.glb",
-			"pos": Guild.CLERK_POS[1], "stance": "guard_b", "phase": 5.1,
-			"face": Vector3(-0.10, 0.0, -1.0), "h": 1.76},
+			"pos": Guild.world(Guild.CLERK_POS[1]), "stance": "guard_b", "phase": 5.1,
+			"face": Guild.world_dir(Vector3(-0.10, 0.0, -1.0)), "h": 1.76},
 	]
 	for s in specs:
 		var npc := NpcGuard.new()
@@ -359,6 +385,83 @@ func _setup_guild_clerks() -> void:
 		add_child(npc)
 		# 进同一个列表，这样转头逻辑（_update_guard_attention）一并覆盖
 		guards.append({"node": npc, "dialogue": "", "clerk": true})
+
+
+# ---------------------------------------------------------------- 店主
+
+## 冒险者区六间店各站一个店主。
+##
+## 位置照 adventurer_district.gd 的店门走：立面在 x=10，门开在每间店的 cz−1.6，
+## 店主站在门前的步道上（x=8.8），面朝大街（−X）。
+##
+## 身高在 1.72~1.86 之间故意错开，模型 i/s 交替 —— 六个人如果一样高、
+## 同一个模型、同一个姿势，走一趟街会发现自己在看复制粘贴。
+##
+## 台词是各自独立的短对话，走的是同一套 dialogue_runner。
+## 「店还没开张」这件事写在对话里，比在门板上贴张告示自然。
+func _setup_shopkeepers() -> void:
+	var specs := [
+		{"name": "ShopWeapon", "model": "res://assets/npc/isaac.glb",
+			"pos": Vector3(21.9, 0.12, 316.0), "h": 1.84, "phase": 0.0,
+			"stance": "guard_a", "dialogue": "res://dialogue/shop_weapon.txt",
+			"prompt": "和武具店老板说话"},
+		{"name": "ShopArmor", "model": "res://assets/npc/skadi.glb",
+			"pos": Vector3(21.9, 0.12, 332.0), "h": 1.78, "phase": 1.7,
+			"stance": "guard_b", "dialogue": "res://dialogue/shop_armor.txt",
+			"prompt": "和防具店老板说话"},
+		{"name": "ShopPotion", "model": "res://assets/npc/isaac.glb",
+			"pos": Vector3(21.9, 0.12, 348.0), "h": 1.72, "phase": 3.1,
+			"stance": "guard_b", "dialogue": "res://dialogue/shop_potion.txt",
+			"prompt": "和薬師屋老板说话"},
+		{"name": "ShopSmith", "model": "res://assets/npc/isaac.glb",
+			"pos": Vector3(21.9, 0.12, 364.0), "h": 1.86, "phase": 4.4,
+			"stance": "guard_a", "dialogue": "res://dialogue/shop_smith.txt",
+			"prompt": "和鍛冶屋老板说话"},
+		{"name": "ShopGoods", "model": "res://assets/npc/skadi.glb",
+			"pos": Vector3(21.9, 0.12, 428.0), "h": 1.75, "phase": 2.3,
+			"stance": "guard_a", "dialogue": "res://dialogue/shop_goods.txt",
+			"prompt": "和雑貨店老板说话"},
+		{"name": "ShopTavern", "model": "res://assets/npc/skadi.glb",
+			"pos": Vector3(21.9, 0.12, 444.0), "h": 1.80, "phase": 5.9,
+			"stance": "guard_b", "dialogue": "res://dialogue/shop_tavern.txt",
+			"prompt": "和酒場老板说话"},
+		# ---- 第二排（沿十字路，立面 z=456）。店面转 90° 之后，
+		# 柜台后的位置在世界里是 (cx, 456 − 11.9)，面朝 +Z 看着门口
+		{"name": "ShopInn", "model": "res://assets/npc/skadi.glb",
+			"pos": Vector3(30.0, 0.12, 444.1), "h": 1.76, "phase": 1.1,
+			"stance": "guard_a", "dialogue": "res://dialogue/shop_inn.txt",
+			"prompt": "和宿屋老板说话", "face": Vector3(0.06, 0.0, 1.0)},
+		{"name": "ShopHarness", "model": "res://assets/npc/isaac.glb",
+			"pos": Vector3(42.0, 0.12, 444.1), "h": 1.83, "phase": 3.6,
+			"stance": "guard_b", "dialogue": "res://dialogue/shop_harness.txt",
+			"prompt": "和馬具屋匠人说话", "face": Vector3(-0.05, 0.0, 1.0)},
+		{"name": "ShopCurio", "model": "res://assets/npc/isaac.glb",
+			"pos": Vector3(54.0, 0.12, 444.1), "h": 1.74, "phase": 4.9,
+			"stance": "guard_b", "dialogue": "res://dialogue/shop_curio.txt",
+			"prompt": "和古道具屋老板说话", "face": Vector3(0.03, 0.0, 1.0)},
+	]
+	for s in specs:
+		var npc := NpcGuard.new()
+		npc.name = s["name"]
+		npc.model_path = s["model"]
+		npc.position = s["pos"]
+		# 第一排朝大街（−X），第二排朝十字路（+Z）。
+		# 默认用 phase 算一点微偏，免得一排人像列队；需要特判的走 face 字段。
+		if s.has("face"):
+			npc.face_dir = s["face"]
+		else:
+			npc.face_dir = Vector3(-1.0, 0.0, float(s["phase"]) * 0.03)
+		npc.stance = s["stance"]
+		npc.phase_offset = s["phase"]
+		npc.target_height = s["h"]
+		# 店员站在门边，注视半径收到 4 m
+		npc.notice_radius = 4.0
+		add_child(npc)
+		guards.append({
+			"node": npc,
+			"dialogue": s["dialogue"],
+			"prompt": s["prompt"],
+		})
 
 
 # ---------------------------------------------------------------- 城门 NPC
@@ -470,8 +573,10 @@ func _on_wake_finished() -> void:
 	player.input_locked = false
 	# 从加油站「死」过来的那一趟，第一小时不接任务、不解释设定，
 	# 只按感官顺序认识这具身体和新世界。正常从商店街进草原则不触发。
-	if get_tree().root.has_meta("from_gas_station_story"):
-		get_tree().root.remove_meta("from_gas_station_story")
+	# 判据是路由给的 arrival 上下文，不再是 root 上一个全局 meta ——
+	# meta 谁都能写、也谁都会忘删，第二次进草原就会重播这段。
+	if _arrival.get("from_scene", &"") == &"gas_station" \
+			and _arrival.get("mode", &"") == &"story":
 		_story_arrival_echo()
 
 
@@ -594,13 +699,16 @@ func _setup_interaction() -> void:
 				func() -> void: hud.toast("接待员正忙着整理名册，暂时没空理你。", 3.0))
 		else:
 			var path: String = g["dialogue"]
-			hub.add_target(pos, GUARD_TALK_RADIUS, "和守卫说话",
+			# 提示文案按角色走：守卫、店主各说各的，别让人在店门口看到「和守卫说话」
+			var prompt: String = g.get("prompt", "和守卫说话")
+			hub.add_target(pos, GUARD_TALK_RADIUS, prompt,
 				func() -> void: _talk_guard(path))
 
 	# 公会的两块任务板。内容是空的，但交互点先接上 ——
 	# 以后填任务文案只改回调，不动布局
 	for p in Guild.BOARD_POS:
-		hub.add_target(p + Vector3(0.0, 1.4, 0.0), Guild.BOARD_RADIUS, "查看任务板",
+		# BOARD_POS 是公会的局部坐标，搬到冒险者区之后必须换算
+		hub.add_target(Guild.world(p) + Vector3(0.0, 1.4, 0.0), Guild.BOARD_RADIUS, "查看任务板",
 			func() -> void: hud.toast("任务板还是空的。公会还没正式开张。", 3.0))
 
 
@@ -622,9 +730,17 @@ func _process(_delta: float) -> void:
 	var z: float = player.global_position.z
 	var p: Vector3 = player.global_position
 	var zone := "草原"
-	if p.x >= Guild.X0 - 0.4 and p.x <= Guild.X1 + 0.4 \
-			and p.z >= Guild.Z0 and p.z <= Guild.Z1 + 0.4:
-		zone = "冒险者公会 · 大厅"
+
+	if z >= TownPlan.Z_GATE and z <= TownPlan.Z_BACK:
+		# 进城之后按规划分区报地名。公会大厅单独判一次 ——
+		# 它已经搬到冒险者区，用世界中心 + 半尺寸比，绝不能再拿局部坐标判。
+		var dx: float = absf(p.x - TownPlan.GUILD_CENTER.x)
+		var dz: float = absf(p.z - TownPlan.GUILD_CENTER.z)
+		# 公会转 90° 后在世界里是 25 宽（X）× 28 深（Z），各取一半留点余量
+		if dx <= 13.0 and dz <= 14.5:
+			zone = "冒险者公会 · 大厅"
+		else:
+			zone = TownPlan.zone_at(p)
 	elif z >= MARBLE_Z1:
 		zone = "广场 · 大理石"
 	elif z >= ROAD_LENGTH:

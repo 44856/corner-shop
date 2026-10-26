@@ -147,7 +147,7 @@ func fire() -> void:
 		_hud.hide_prompt()
 
 	# 喇叭先从画面外传过来，车再露头
-	_play(Vector3(SIDE * (B + 1.2), 1.5, _lane), Sfx.horn(), 2.0, 60.0)
+	_play(Vector3(SIDE * (B + 1.2), 1.5, _lane), Sfx.horn(), 2.0, 60.0, 4)
 
 
 func _spawn() -> void:
@@ -221,7 +221,7 @@ func _on_hit() -> void:
 	if _player.has_method("add_shake"):
 		_player.add_shake(0.11, 0.9)
 
-	_play(hit_pos, Sfx.impact(), 6.0, 40.0)
+	_play(hit_pos, Sfx.impact(), 6.0, 40.0, 6)
 	if _hud != null:
 		_hud.hide_toast()
 		_hud.flash(Color(1.0, 0.97, 0.92, 0.85), 0.24)
@@ -252,18 +252,15 @@ func _respawn() -> void:
 
 # ---------------------------------------------------------------- 工具
 
-func _play(pos: Vector3, stream: AudioStream, db: float = 0.0, max_dist: float = 40.0) -> void:
-	if stream == null:
-		return
-	var p := AudioStreamPlayer3D.new()
-	p.stream = stream
-	p.position = pos
-	p.volume_db = db
-	p.unit_size = 8.0
-	p.max_distance = max_dist
-	add_child(p)
-	p.finished.connect(p.queue_free)
-	p.play()
+## priority 只影响池子满时谁被抢：喇叭和撞击不能被货架上的「嗒」顶掉
+func _play(pos: Vector3, stream: AudioStream, db: float = 0.0,
+		max_dist: float = 40.0, priority: int = 0) -> void:
+	AudioBus.play_3d(stream, pos, {
+		"db": db,
+		"unit_size": 8.0,
+		"max_distance": max_dist,
+		"priority": priority,
+	})
 
 
 # ---------------------------------------------------------------- 截图 / 调试

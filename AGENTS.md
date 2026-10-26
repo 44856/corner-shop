@@ -9,11 +9,11 @@
 
 ## 1. 这是什么
 
-Godot 4.7.2 / Forward+ 的「雨夜便利店街角 + 异世界草原」双场景 Demo。
+Godot 4.7.2 / Forward+ 的「雨夜便利店街角 + 商店街 + 国道加油站 + 异世界草原」多场景 Demo。
 **全部几何、材质、灯光、雨效由 GDScript 运行时生成**，除 VRoid 角色模型外零外部资产。
-约 6.5k 行 GDScript、5 个场景、2 组回归 probe。
+约 1.6 万行 GDScript / 43 个脚本、7 个场景、10 组回归 probe（276 条断言）。
 
-两个场景在视觉上刻意对立：雨夜（冷蓝低照度、湿地面反射）↔ 草原（明亮饱和）。
+雨夜线（便利店 / 商店街 / 加油站）与草原在视觉上刻意对立：冷蓝低照度、湿地面反射 ↔ 明亮饱和。
 二者的反差本身就是「穿越」的叙事信号，改配色时别把这条抹平。
 
 ---
@@ -31,7 +31,8 @@ Godot 4.7.2 / Forward+ 的「雨夜便利店街角 + 异世界草原」双场景
 
 这个工程里很多「看起来该新写」的东西已经有了：`kit.gd` 有 20 个建模原语、`sfx.gd` 有程序化音效、
 `hud.gd` 有完整的提示/区域/淡入淡出、`interaction_hub.gd` 有「谁最近就提示谁」。
-新写一份的代价不是多写几百行，是**从此有两份会各自漂移的实现**。
+2026-10-23 之后又多三个入口：`AudioBus` 管所有播放、`SceneRouter` 管所有跨场景切换、
+`kit.batch_static()` 管静态街景合批。新写一份的代价不是多写几百行，是**从此有两份会各自漂移的实现**。
 
 ```bash
 grep -rn "关键词" --include=*.gd scripts
@@ -45,12 +46,12 @@ grep -rn "关键词" --include=*.gd scripts
 | --- | --- | --- | --- |
 | R1 | `.tscn` 只允许 1 个根节点 + 1 个脚本，几何全部 `_ready()` 生成 | 这是本工程能做**文本 diff** 的前提。摆节点会产生无法人工合并的 `Transform3D` 冲突 | 自动 |
 | R2 | probe 只读公开接口，不碰 `_` 开头字段 | 读私有字段会让内部重构静默打断测试，并且没有编译错误提醒 | 自动 |
-| R3 | 不要新增第四份输入注册 | 现在有 3 份（`dog` / `interaction_hub` / `player_controller`），已经在漂移（dog 提示「按 F」、hub 注册 E）。第四份出现说明有人在复制而不是复用 | 自动 |
+| R3 | 不要新增第四份输入注册 | 现在有 3 份（`dog` / `interaction_hub` / `player_controller`），键位仍不统一（dog 注册 F、其余场景 hub 注册 E）。第四份出现说明有人在复制而不是复用 | 自动 |
 | R4 | `res://` 路径必须真实存在 | 改名/搬文件最容易留断链，而且只在运行时炸 | 自动 |
 | R5 | `project.godot` 的 `run/main_scene` 必须存在 | 这条真的坏过：指向 `opening_flow`，README 说入口是 `store_walk` | 自动 |
 | R6 | 截图、`Godot_v*` 二进制、`.godot/` 不进索引 | 截图每次重渲都是二进制 diff；引擎 146MB | 自动 |
 | R7 | 改完必须跑 `./tools/check.sh`，全绿才算完成 | 「看起来正常」不是证据。probe 会告诉你门是不是真的能过 | 人工 |
-| R8 | 改 `kit / store / street / props` 的公开签名 = 改契约 | 它们分别被 11 / 5 / 4 / 4 个文件引用，改签名是隐形破坏 | 人工 |
+| R8 | 改 `kit / store / street / props` 的公开签名 = 改契约 | 它们分别被 20 / 7 / 3 / 8 个文件引用，改签名是隐形破坏。`core/` 与 `audio/` 的公开方法同样是契约 | 人工 |
 | R9 | 不引第三方框架、不引 ECS、不把程序化改成编辑器摆场景 | 实体只有几十个，框架成本大于收益；摆场景会失去 diff 能力 | 人工 |
 
 ### R8 的正确做法
@@ -88,6 +89,28 @@ grep -rn "Store.build\|Store.layout" --include=*.gd scripts tools
   测移动可以用 `action_press`（移动读的是 `_physics_process` 里的动作状态）——
   `walk_probe` 和 `grassland_probe` 的差异就在这里，不是随手写的。
 
+### 场景路由
+
+- **切场景只有一条路：`SceneRouter.goto()`。** 直调 `change_scene_to_file()` 会绕过抵达上下文、
+  转场锁和剧情节点推进，新场景拿不到 arrival。`letter_transition.gd` 是唯一的执行层例外。
+- **arrival 只能消费一次，而且必须在 `_ready()` 顶部取。** 先搭 UI、再取 arrival，读到的就是 `{}`。
+  取到后把 `mode` 交给场景自己的开场逻辑，别再让转场和场景各淡一次黑。
+- **反向出口不改 story 节点。** 从 ep2 走回 ep1 只换可见场景，不回滚叙事进度；
+  剧情节点只由正向首次抵达推进。把回程也写成 `goto(..., "story")` 会让读档退回上一章。
+- **`WorldLinks.resolve()` 是纯函数。** 不读 `GameState`、不 `await`、不加副作用；
+  `router_probe` 的 79 条断言靠的就是「输入相同、输出一定相同」。要新状态就显式传参。
+
+### 音频
+
+- **所有播放走 `AudioBus`，不要 `new AudioStreamPlayer`。** 自己建播放器会绕开总线、
+  场景切换清理、优先级抢占和 `AudioVoice` 句柄，音量也漏掉 `Music` / `Ambience` 总线。
+- **循环只能播副本。** `Sfx.*` 返回的是 static 缓存实例，直接改 `loop_mode` 会让所有使用者一起循环。
+  `AudioBus.channel()` 内部已经 `duplicate()`，别绕开它自己改流。
+- **循环声道要用 `stop_channel()` 停。** 循环流永远不发 `finished`，`AudioVoice.stop()` 之后
+  声道元数据仍在；只有 `stop_channel()` / owner 释放会回收它。
+- **跨场景长音才挂 `owner`。** `AudioBus` 切场景时只清一次性 2D/3D 音效，不清声道；
+  一次性氛围音忘了绑 owner，就会在下一个场景继续响。
+
 ### 渲染与材质
 
 - **`kit.toon()` 有全局材质缓存**（`static var _cache`，key 由全部参数拼成）。
@@ -101,6 +124,10 @@ grep -rn "Store.build\|Store.layout" --include=*.gd scripts tools
   所以 `CAM_IN` 是 1.6m + FOV 70° + 右肩偏移，不是随便调的。
 - 雨是按 xz 采样「该列最高的可接雨表面」再决定回收的。加新的遮雨结构（雨棚、屋檐）
   必须同步更新那份表面表，否则雨会穿过去继续下。
+- **`kit.batch_static()` 要在静态几何建完、动态节点加入之前调用。** 它合的是调用那一刻已存在的网格，
+  后加的节点合不进去。脚本子树、碰撞体、非 toon 材质、蒙皮网格会被跳过——所以别把会动的门 /
+  角色挂在被合批的分支下，也别指望合批后还能按节点改材质或显隐（原 `MeshInstance3D` 已被移除，
+  只剩按「材质 + 阴影模式」分桶的合并网格）。
 
 ### 性能与启动
 
@@ -112,6 +139,9 @@ grep -rn "Store.build\|Store.layout" --include=*.gd scripts tools
 - **Godot 打包脚本错误时经常仍然 exit 0。** 所以 `check.sh` 的失败判定有三条：
   退出码、输出里的 `SCRIPT ERROR`/`Parse Error`、probe 自己打印的 failed 计数。
   只信退出码会漏。
+- **新增 `class_name` 可能只在 CI 炸。** 本地 `.godot/global_script_class_cache.cfg` 是热的；
+  CI 缓存的 `.godot` 不含 `scripts/` 的哈希，Godot 不会重建全局类表，于是报 `Could not find type`。
+  `check.sh` 现在按 `.gd` 内容哈希刷新缓存；绕开它直接跑引擎时，先删掉那个 cfg。
 
 ---
 
@@ -122,6 +152,8 @@ grep -rn "Store.build\|Store.layout" --include=*.gd scripts tools
 ./tools/run.sh store_walk           # 单场景（简写，自动补路径）
 ./tools/run.sh list                 # 有哪些场景
 ./tools/run.sh --headless walk_probe
+./tools/run.sh --headless router_probe  # 路由规则（纯函数，79 条）
+./tools/run.sh --headless audio_probe   # 音频合并 / 生命周期（42 条）
 ./tools/run.sh store_walk -- --shot # 透传参数
 ./tools/run.sh -n store_wal         # dry run，只看命令
 
