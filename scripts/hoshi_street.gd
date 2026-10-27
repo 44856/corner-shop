@@ -245,9 +245,10 @@ func _setup_audio() -> void:
 	# owner 绑场景根，场景卸载时由 AudioBus 负责淡出，不用自己 stop。
 	_rain = AudioBus.channel(&"rain", load("res://audio/street_rain_loop.wav"), {
 		"bus": AudioBus.BUS_AMBIENCE,
-		# 素材本身已经比最初的 -16.9 LUFS 轻了 1.6dB（密度要求），这里再低 3dB：
-		# 想要"雨小一点"应该动这一档，不要去削素材——材质削坏了只能重做。
-		"db": -17.0,
+		# 素材按 EBU R128 的 -23 LUFS 出母版，所以这一档比早期（-16.9 LUFS）高 6dB，
+		# 有效电平仍是 -35.5 LUFS，玩家听到的响度没变。
+		# 想要"雨大一点/小一点"就动这一档，不要去削素材。
+		"db": -12.5,
 		"owner": self,
 	})
 	_hum = AudioBus.channel(&"hum", load("res://audio/drone_loop.wav"), {
@@ -396,8 +397,8 @@ func _process(delta: float) -> void:
 		_on_zone_changed(zone)
 
 	# 雨声：街上比店里响一档；店里的低频压缩机声更近。
-	# 街上 -17 / 店里 -29 保持原来的 12dB 落差——只整体下移，不改关系。
-	var rain_db := -29.0 if _inside else -17.0
+	# 街上 -12.5 / 店里 -24.5 仍是 12dB 落差。
+	var rain_db := -24.5 if _inside else -12.5
 	var hum_db := -24.0 if _inside else -38.0
 	if _rain != null:
 		_rain.volume_db = lerpf(_rain.volume_db, rain_db, 1.0 - exp(-1.6 * delta))
