@@ -1349,7 +1349,9 @@ func _setup_audio() -> void:
 	# owner 绑场景根，场景卸载时由 AudioBus 负责淡出，不用自己 stop。
 	_rain = AudioBus.channel(&"rain", load("res://audio/gas_station_rain_loop.wav"), {
 		"bus": AudioBus.BUS_AMBIENCE,
-		"db": -14.0,
+		# 与商店街同一档：素材已经比最初轻 1.6dB，这里再低 3dB。
+		# 想再小就继续动这一档，别回头削素材。
+		"db": -17.0,
 		"owner": self,
 	})
 	_hum = AudioBus.channel(&"hum", load("res://audio/drone_loop.wav"), {
@@ -1426,10 +1428,10 @@ func _process(delta: float) -> void:
 	if zone != _zone:
 		_on_zone_changed(zone)
 
-	# 顶棚下只剩铁皮上的闷响，雨声要明显收一档。
+	# 顶棚下只剩铁皮上的闷响，雨声要明显收一档（-6dB，与街上同步下移）。
 	# 死亡段由剧情接管音量，这里再往回拉会把「听觉熄灭」拉回去。
 	if not _audio_override:
-		var rain_db := -20.0 if zone == "canopy" else -14.0
+		var rain_db := -23.0 if zone == "canopy" else -17.0
 		if _rain != null:
 			_rain.volume_db = lerpf(_rain.volume_db, rain_db, 1.0 - exp(-1.6 * delta))
 		if _hum != null:

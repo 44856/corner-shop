@@ -201,7 +201,9 @@ func _setup_audio() -> void:
 	# owner 绑场景根，场景卸载时由 AudioBus 负责淡出，不用自己 stop。
 	_rain = AudioBus.channel(&"rain", load("res://audio/rain_loop.wav"), {
 		"bus": AudioBus.BUS_AMBIENCE,
-		"db": -15.0,
+		# 和商店街同一档：街/站那边的雨已经下移 3dB，这里不动的话进店反而更响。
+		# 店内用闷版 rain_loop.wav，落差靠 -18/-29 的 11dB 维持。
+		"db": -18.0,
 		"owner": self,
 	})
 	_hum = AudioBus.channel(&"hum", load("res://audio/drone_loop.wav"), {
@@ -305,7 +307,7 @@ func _process(delta: float) -> void:
 	_update_shadow()
 
 	# 雨声跟着进出变化：进店之后只剩闷在玻璃外面的雨
-	var rain_db := -26.0 if _inside else -15.0
+	var rain_db := -29.0 if _inside else -18.0
 	var hum_db := -24.0 if _inside else -40.0
 	if _rain != null:
 		_rain.volume_db = lerpf(_rain.volume_db, rain_db, 1.0 - exp(-1.6 * delta))
