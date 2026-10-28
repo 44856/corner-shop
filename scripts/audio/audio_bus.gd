@@ -29,6 +29,9 @@ const POOL_MAX_DISTANCE := 14.0
 const DEFAULT_FADE := 0.25
 ## 同一个声道被新场景接管时的淡入时长
 const TAKEOVER_FADE := 0.2
+## 转场切声时连续声床（雨、低频）的收尾时长。整段转场约 4s，0.2s 听感上就是掐断，
+## 但不会因为硬停循环流留下爆音。
+const TRANSITION_CUT := 0.2
 const MIN_DB := -60.0
 ## 刚建好的流可能还没进入 playing 状态，回收判定先宽限一会儿
 const VOICE_GRACE_MS := 250
@@ -321,6 +324,41 @@ func channel_volume_db(id: StringName) -> float:
 func is_channel_playing(id: StringName) -> bool:
 	var voice: AudioVoice = _channels.get(id)
 	return voice != null and voice.playing
+
+
+# ---- 转场切声
+
+## 场景切换时把旧场景的声音整个收掉，切到新场景之前保持静音。
+## 新场景的 _setup_audio() 在 change_scene 之后才申请声道，所以不会被这一刀误伤。
+##
+## 只给 SceneRouter.goto() 调用：业务代码要停某条声道用 stop_channel()。
+## 声道用 TRANSITION_CUT 淡出而不是硬停——雨、低频这类连续声床直接砍会爆音；
+## 一次性音效和 3D 池没有「淡」的余地，直接丢（它们本来就在场景切换时被 scope 清掉）。
+func cut_for_transition() -> void:
+	for id in _channels.keys():
+		stop_channel(id, TRANSITION_CUT)
+	for bus in _poly_streams:
+		var playback = _poly_playbacks.get(bus)
+		var active: Array = _poly_streams[bus]
+		if playback != null:
+			for entry in active:
+				playback.stop_stream(int(entry["id"]))
+		active.clear()
+		(_poly_pending[bus] as Array).clear()
+	for p in _pool_players:
+		p.stop()
+	_pool_meta.clear()
+	for id in _emitters.keys():
+		var entry: Dictionary = _emitters[id]
+		var player = entry.get("player")
+		if is_instance_valid(player):
+			player.stop()
+			# 播放器要一起释放：留着停止状态的播放器，下次 play_on 会拿到
+			# get_stream_playback() == null 的旧对象，请求永远卡在 pending 里。
+			player.queue_free()
+		(entry["pending"] as Array).clear()
+		(entry["streams"] as Array).clear()
+		_emitters.erase(id)
 
 
 # ---- 总线混音

@@ -178,6 +178,36 @@ func _run() -> void:
 	await get_tree().create_timer(0.7).timeout
 	_check("非循环声道播完自动回收", not bus.channel_ids().has(&"probe_once"))
 
+	# ---- 转场切声：四种形态一起收，新场景之后再申请
+	var cut_emitter := Node3D.new()
+	cut_emitter.name = "ProbeCutEmitter"
+	add_child(cut_emitter)
+	bus.channel(&"probe_cut", Sfx.tap(), {"db": -20.0})
+	bus.play_2d(Sfx.bell(), {"db": -32.0})
+	bus.play_3d(Sfx.bell(), Vector3.ZERO, {"db": -32.0})
+	bus.play_on(cut_emitter, Sfx.bell(), {"db": -32.0})
+	await get_tree().process_frame
+	await get_tree().process_frame
+	_check("转场前声道 / 2D / 3D / 发射器都在播",
+			bus.is_channel_playing(&"probe_cut") and bus.active_2d_voices() > 0
+			and bus.active_3d_voices() > 0 and bus.emitter_player_count() == 1)
+
+	bus.cut_for_transition()
+	await get_tree().process_frame
+	_check("转场切掉 2D 复音", bus.active_2d_voices() == 0)
+	_check("转场切掉 3D 池", bus.active_3d_voices() == 0)
+	_check("转场切掉发射器", bus.emitter_player_count() == 0)
+	# 声道走 0.2s 淡出，等它真正从表里消失。
+	await get_tree().create_timer(0.45).timeout
+	_check("转场切掉命名声道", not bus.channel_ids().has(&"probe_cut"))
+
+	bus.channel(&"probe_cut_after", Sfx.tap(), {"db": -20.0})
+	await get_tree().process_frame
+	_check("切完新场景能立刻重新申请声道",
+			bus.is_channel_playing(&"probe_cut_after"))
+	bus.stop_channel(&"probe_cut_after", 0.0)
+	cut_emitter.queue_free()
+
 	# ---- 总线混音
 	_check("Music 初始为 0dB", is_equal_approx(bus.bus_db(&"Music"), 0.0))
 	bus.fade_bus(&"Music", -20.0, 0.05)

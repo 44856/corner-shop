@@ -176,9 +176,9 @@ tools/setup_lfs.sh      git-lfs 环境检查与历史迁移
 tools/walk_probe.tscn   便利店行走回归（14 条断言，见「自测」）
 tools/truck_probe.tscn  车祸事件回归（17 条断言，见「自测」）
 tools/street_probe.tscn 商店街回归（17 条断言，见「自测」）
-tools/grassland_probe.tscn 草原交互回归（41 条断言）
-tools/gas_station_probe.tscn 加油站场景回归（13 条断言）
-tools/gas_station_story_probe.tscn 加油站剧情回归（30 条断言）
+tools/grassland_probe.tscn 草原交互回归（86 条断言）
+tools/gas_station_probe.tscn 加油站场景回归（16 条断言）
+tools/gas_station_story_probe.tscn 加油站剧情回归（31 条断言）
 ```
 
 ## 交互实现要点
@@ -211,6 +211,8 @@ tools/gas_station_story_probe.tscn 加油站剧情回归（30 条断言）
   Alpha 径向渐变面片，每帧向下打一条射线贴地，跳起来时缩小变淡。
 - **声音**：所有播放都经 `AudioBus`（autoload）。一次性音效合并进每条总线一个复音播放器，
   3D 音效走固定池，雨 / 低频用命名声道（`rain` / `hum`）——跨场景同名申请是接管，不会叠两层。
+  转场开始时 `SceneRouter` 会调 `AudioBus.cut_for_transition()` 把旧场景的声音整个收掉；
+  新场景切过去之后才由它自己的 `_setup_audio()` 重新申请，加载屏里不会叠着两套雨声。
   门铃 / 服务铃是运行时合成的 PCM（`sfx.gd`）；进店时雨声压到 −24.5dB、低频抬到 −24dB，
   玻璃把雨关在了外面。
 - **车祸事件**：进过店（区域判定 `"in"`）之后走到南侧车行道中间（`z > 3.7`）触发，
@@ -240,13 +242,13 @@ tools/gas_station_story_probe.tscn 加油站剧情回归（30 条断言）
 | `walk_probe` | 14 | 走进店门 → 东侧过道 → 冷柜 → 退出门 → 爬回路缘；门是否打开、是否跨过门槛、是否踩上 0.25m 地板、提示文案、服务铃店内亮 / 隔墙不亮、挤不进休息室、离开后关门 |
 | `truck_probe` | 17 | 车祸事件：触发条件、冲刺速度、命中判定、慢镜头、收黑复位、不重复触发、车出台面后回收 |
 | `street_probe` | 17 | 商店街：出生点在东口、沿街往西可走、两排店面挡得住、上下 16cm 路缘、斑马线过街、拉面店 / 候车亭交互、从新街区走进同一家便利店 |
-| `grassland_probe` | 41 | 狗与两个守卫的交互、提示出/收、区域标签、对话全流程、守卫站姿与脚底贴地 |
+| `grassland_probe` | 86 | 狗与两个守卫的交互、提示出/收、区域标签、对话全流程、守卫站姿与脚底贴地 |
 | `gas_station_probe` | 16 | 加油机岛台与小卖亭挡人、16cm 路缘、顶棚区域、柜台隔窗提示、到达上下文清空、转场锁（含出口停用） |
 | `gas_station_story_probe` | 31 | 收音机 / 司机 / 擦身车三颗子弹、逢魔时、道具撤场、路牌提示消失、撞车锁输入且无侧向位移、驾驶室贴近角色（约 0.1m）、死亡段保持锁输入、撞击后不倒地、死亡接管环境声、终态 DONE |
 | `prop_collision_probe` | 12 | 商店街街具与便利店门前道具的碰撞足迹 |
 | `transition_probe` | 7 | 字母转场：层级、字母拆分、进度、自毁 |
-| `router_probe` | 79 | 场景路由纯数据：默认路由 / 剧情节点覆盖 / 禁用理由、同一出口改指向、`*` 通配、`set_story_node` 合法性、本地 PORTALS 与中央 ROUTES 一一对应、GameState 与 SceneRouter 到达上下文 |
-| `audio_probe` | 42 | 音频合并层：2D 复音上限与优先级抢占、3D 固定池、发射器复音、命名声道接管 / 淡变 / 循环、owner 生命周期、总线淡变 |
+| `router_probe` | 80 | 场景路由纯数据：默认路由 / 剧情节点覆盖 / 禁用理由、同一出口改指向、`*` 通配、`set_story_node` 合法性、本地 PORTALS 与中央 ROUTES 一一对应、GameState 与 SceneRouter 到达上下文 |
+| `audio_probe` | 49 | 音频合并层：2D 复音上限与优先级抢占、3D 固定池、发射器复音、命名声道接管 / 淡变 / 循环、owner 生命周期、转场切声、总线淡变 |
 
 判定失败的条件有三条：probe 退出码非 0、输出里有 `SCRIPT ERROR` / `Parse Error`、
 probe 自己打印的 `failed` 计数非 0。**只靠退出码会漏**，因为 Godot 打包脚本错误时经常照样返回 0。
