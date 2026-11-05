@@ -21,6 +21,7 @@ const Hub := preload("res://scripts/interaction_hub.gd")
 const Sfx := preload("res://scripts/sfx.gd")
 const GasStationStory := preload("res://scripts/gas_station_story.gd")
 const PortalHost := preload("res://scripts/core/portal_host.gd")
+const RainEvents := preload("res://scripts/audio/rain_events.gd")
 
 ## 场地范围。0 是西缘，30 是东缘；国道沿 X 穿过，z 0..4 是车行道。
 const X0 := 0.0
@@ -40,6 +41,11 @@ const CANOPY_X1 := 22.75
 const CANOPY_Z0 := 6.1
 const CANOPY_Z1 := 11.9
 const CANOPY_TOP := 5.16
+
+## 顶棚下的环境低通：不是「更闷」，是「远处的雨被铁皮挡住了」。
+## 收掉 8k 以上的沙，保留 1–3kHz 的铁皮敲击与近场雨滴；
+## 顶棚下的辨识度靠事件层（檐口滴水 / 排水沟），不靠把整条雨推远。
+const CUTOFF_CANOPY := 7000.0
 
 ## 小卖亭
 const KIOSK_X0 := 2.3
@@ -92,6 +98,7 @@ var _seen_forecourt := false
 var _audio_override := false
 var _rain: AudioVoice
 var _hum: AudioVoice
+var rain_events: Node
 
 
 func _ready() -> void:
@@ -1359,11 +1366,53 @@ func _setup_audio() -> void:
 		"owner": self,
 	})
 
+	AudioBus.set_ambience_cutoff(AudioBus.AMBIENCE_CUTOFF_OPEN)
+	rain_events = RainEvents.new()
+	rain_events.name = "RainEvents"
+	add_child(rain_events)
+	rain_events.bind(player, rain_event_points())
+
+
+## 发射点全部对应场景里真实存在的结构：顶棚檐口、两条排水沟、两根落水管、
+## 国道上的积水。视觉把「雨被顶棚切开」做出来了，声音不能还是一条全局立体声。
+func rain_event_points() -> Array:
+	var out: Array = []
+	# 南北檐口各三个滴水点，挂在 4.6m 的檐沿上 —— 站在顶棚下能听见头顶在滴。
+	for z in [CANOPY_Z0, CANOPY_Z1]:
+		for k in 3:
+			var x := lerpf(CANOPY_X0 + 1.2, CANOPY_X1 - 1.2, 0.18 + 0.32 * float(k))
+			out.append({
+				"pos": Vector3(x, 4.6, float(z)),
+				"kind": &"drip", "lo": 1.0, "hi": 3.6, "db": -21.0,
+			})
+	# 两条线性排水沟（_drain_grate 的 cz），沿 x 各取两处。
+	for z in [5.85, 12.15]:
+		for k in 2:
+			out.append({
+				"pos": Vector3(CENTER_X - 3.4 + 6.8 * float(k), 0.22, float(z)),
+				"kind": &"gutter", "lo": 6.0, "hi": 14.0, "db": -26.0,
+			})
+	# 两根落水管的出水口：上面那片铁皮的雨最终都从这里出去。
+	for spec in [Vector3(10.45, 0.24, 6.84), Vector3(21.55, 0.24, 11.16)]:
+		out.append({
+			"pos": spec, "kind": &"gutter", "lo": 4.5, "hi": 11.0, "db": -24.0,
+		})
+	# 国道：偶尔一辆车压过积水，间隔比街上短一点（这里是国道）。
+	for x in [7.0, 22.0]:
+		out.append({
+			"pos": Vector3(float(x), 0.12, 2.0),
+			"kind": &"splash", "lo": 8.0, "hi": 20.0, "db": -25.0,
+		})
+	return out
+
 
 ## 剧情死亡时把环境声一起收掉。只暴露这一个入口，不让剧情去拿声道句柄：
 ## 句柄是私有的，换个命名、加一层容器就会静默失效。
 func fade_station_audio(seconds: float) -> void:
 	_audio_override = true
+	# 事件层也要停：雨声淡出之后还滴一滴水，听觉熄灭就被破坏了。
+	if rain_events != null:
+		rain_events.set_enabled(false)
 	if _rain != null:
 		_rain.fade_to(-60.0, seconds)
 	if _hum != null:
@@ -1428,13 +1477,19 @@ func _process(delta: float) -> void:
 		_on_zone_changed(zone)
 
 	# 顶棚下只剩铁皮上的闷响，雨声要明显收一档（-6dB，与街上同步下移）。
+	# 同时收掉远处的高频沙：站在棚下听见的是「铁皮被敲」，不是同一场雨变小。
 	# 死亡段由剧情接管音量，这里再往回拉会把「听觉熄灭」拉回去。
 	if not _audio_override:
 		var rain_db := -18.5 if zone == "canopy" else -12.5
+		var cutoff := CUTOFF_CANOPY if zone == "canopy" else AudioBus.AMBIENCE_CUTOFF_OPEN
+		var blend := 1.0 - exp(-1.6 * delta)
+		AudioBus.set_ambience_cutoff(lerpf(AudioBus.ambience_cutoff(), cutoff, blend))
 		if _rain != null:
-			_rain.volume_db = lerpf(_rain.volume_db, rain_db, 1.0 - exp(-1.6 * delta))
+			_rain.volume_db = lerpf(_rain.volume_db, rain_db, blend)
 		if _hum != null:
-			_hum.volume_db = lerpf(_hum.volume_db, -38.0, 1.0 - exp(-1.6 * delta))
+			_hum.volume_db = lerpf(_hum.volume_db, -38.0, blend)
+	if rain_events != null:
+		rain_events.advance(delta)
 
 
 func zone() -> String:

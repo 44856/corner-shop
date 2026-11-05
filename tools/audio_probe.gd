@@ -192,9 +192,13 @@ func _run() -> void:
 			bus.is_channel_playing(&"probe_cut") and bus.active_2d_voices() > 0
 			and bus.active_3d_voices() > 0 and bus.emitter_player_count() == 1)
 
+	# 环境低通是全局状态：转场必须复位，否则从店里切到草原会一直闷着，
+	# 而且听起来像「素材坏了」而不是「状态没清」。
+	bus.set_ambience_cutoff(1200.0)
 	bus.cut_for_transition()
 	await get_tree().process_frame
-	_check("转场切掉 2D 复音", bus.active_2d_voices() == 0)
+	_check("转场复位环境低通",
+			is_equal_approx(bus.ambience_cutoff(), bus.AMBIENCE_CUTOFF_OPEN))
 	_check("转场切掉 3D 池", bus.active_3d_voices() == 0)
 	_check("转场切掉发射器", bus.emitter_player_count() == 0)
 	# 声道走 0.2s 淡出，等它真正从表里消失。
@@ -207,6 +211,21 @@ func _run() -> void:
 			bus.is_channel_playing(&"probe_cut_after"))
 	bus.stop_channel(&"probe_cut_after", 0.0)
 	cut_emitter.queue_free()
+
+	# ---- 环境总线的区域低通
+	# 进出室内只改音量是不够的：玻璃先吃掉高频。cutoff 做成可插值而不是
+	# effect 开关，就是为了这一档能跟着区域平滑走。
+	bus.reset_ambience_cutoff()
+	_check("环境低通默认全开",
+			is_equal_approx(bus.ambience_cutoff(), bus.AMBIENCE_CUTOFF_OPEN))
+	bus.set_ambience_cutoff(1500.0)
+	_check("截止频率可设", is_equal_approx(bus.ambience_cutoff(), 1500.0))
+	bus.set_ambience_cutoff(-100.0)
+	_check("截止频率有下限，不会变成隔墙嗡鸣", bus.ambience_cutoff() >= 300.0)
+	bus.reset_ambience_cutoff()
+	_check("可复位到全开",
+			is_equal_approx(bus.ambience_cutoff(), bus.AMBIENCE_CUTOFF_OPEN))
+	_check("调试快照带截止频率", bus.debug_snapshot().has("ambience_cutoff"))
 
 	# ---- 总线混音
 	_check("Music 初始为 0dB", is_equal_approx(bus.bus_db(&"Music"), 0.0))

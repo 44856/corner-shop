@@ -33,6 +33,15 @@ const TAKEOVER_FADE := 0.2
 ## 但不会因为硬停循环流留下爆音。
 const TRANSITION_CUT := 0.2
 const MIN_DB := -60.0
+
+## 环境总线的「全开」截止频率。44.1kHz 素材的 Nyquist 是 22050Hz，
+## 20000Hz 处一阶以上的滚降已经落在可听范围之外，等效于旁通。
+## 用 cutoff 而不是 effect 的 enabled 开关，是为了让进出室内能平滑插值：
+## 开关只有 0/1，跨门那一刻会「啪」地换一次音色。
+const AMBIENCE_CUTOFF_OPEN := 20000.0
+## 最闷的一档也要留一点空气声，压到 300Hz 以下就变成隔墙的嗡鸣了。
+const AMBIENCE_CUTOFF_MIN := 300.0
+
 ## 刚建好的流可能还没进入 playing 状态，回收判定先宽限一会儿
 const VOICE_GRACE_MS := 250
 ## 复音流同理：play_stream() 之后音频线程要过一下才把它标成 playing。
@@ -62,6 +71,10 @@ var _owner_bindings: Dictionary = {}
 
 var _bus_tweens: Dictionary = {}     # bus -> Tween
 
+# ---- 环境总线的区域低通（跨场景共享，必须由转场复位）
+var _ambience_lpf: AudioEffectLowPassFilter
+var _ambience_effect_slot := -1
+
 var _seq := 0
 var _last_scene_id := 0
 
@@ -70,6 +83,7 @@ func _ready() -> void:
 	for bus in [BUS_AMBIENCE, BUS_SFX, BUS_MUSIC]:
 		if AudioServer.get_bus_index(bus) < 0:
 			push_warning("AudioBus：总线「%s」不存在，检查 default_bus_layout.tres" % bus)
+	_install_ambience_lpf()
 	_build_pool_3d()
 	_last_scene_id = _scope_id()
 
@@ -335,6 +349,9 @@ func is_channel_playing(id: StringName) -> bool:
 ## 声道用 TRANSITION_CUT 淡出而不是硬停——雨、低频这类连续声床直接砍会爆音；
 ## 一次性音效和 3D 池没有「淡」的余地，直接丢（它们本来就在场景切换时被 scope 清掉）。
 func cut_for_transition() -> void:
+	# 总线滤波是跨场景的全局状态，先复位再收声道。
+	# 新场景的 _setup_audio() 会显式声明自己那档，不依赖上一个场景留下的值。
+	reset_ambience_cutoff()
 	for id in _channels.keys():
 		stop_channel(id, TRANSITION_CUT)
 	for bus in _poly_streams:
@@ -359,6 +376,49 @@ func cut_for_transition() -> void:
 		(entry["pending"] as Array).clear()
 		(entry["streams"] as Array).clear()
 		_emitters.erase(id)
+
+
+# ---- 环境总线：区域低通
+
+## 当前环境低通的截止频率（Hz）。全开是 AMBIENCE_CUTOFF_OPEN。
+func ambience_cutoff() -> float:
+	return _ambience_lpf.cutoff_hz if _ambience_lpf != null else AMBIENCE_CUTOFF_OPEN
+
+
+## 设截止频率。不做内部补间：区域切换与雨声音量档共用同一个指数系数，
+## 两个补间放在场景的 _process 里才不会错拍（一个已经闷了另一个还在响）。
+func set_ambience_cutoff(hz: float) -> void:
+	if _ambience_lpf == null:
+		return
+	_ambience_lpf.cutoff_hz = clampf(hz, AMBIENCE_CUTOFF_MIN, AMBIENCE_CUTOFF_OPEN)
+
+
+## 复位到全开。总线是全局的：从店里直接切到没有雨的场景时若没人复位，
+## 下一个场景的环境声会一直闷着，而且听起来像「素材坏了」而不是「状态没清」。
+func reset_ambience_cutoff() -> void:
+	set_ambience_cutoff(AMBIENCE_CUTOFF_OPEN)
+
+
+func _install_ambience_lpf() -> void:
+	var idx := AudioServer.get_bus_index(BUS_AMBIENCE)
+	if idx < 0:
+		return
+	# 幂等：编辑器重跑导入、或者以后有人在 .tres 里手挂了一个低通，
+	# 都不要叠第二个 —— 两级低通会把「闷」变成「堵」。
+	for i in AudioServer.get_bus_effect_count(idx):
+		var fx := AudioServer.get_bus_effect(idx, i)
+		if fx is AudioEffectLowPassFilter:
+			_ambience_lpf = fx as AudioEffectLowPassFilter
+			_ambience_effect_slot = i
+			break
+	if _ambience_lpf == null:
+		_ambience_lpf = AudioEffectLowPassFilter.new()
+		AudioServer.add_bus_effect(idx, _ambience_lpf)
+		_ambience_effect_slot = AudioServer.get_bus_effect_count(idx) - 1
+	# 绝不动 resonance：抬 Q 会在截止点堆出一个窄峰，和雨声规格里的「无共振峰」冲突。
+	_ambience_lpf.resonance = 0.5
+	AudioServer.set_bus_effect_enabled(idx, _ambience_effect_slot, true)
+	_ambience_lpf.cutoff_hz = AMBIENCE_CUTOFF_OPEN
 
 
 # ---- 总线混音
@@ -451,6 +511,7 @@ func debug_snapshot() -> Dictionary:
 			String(BUS_SFX): bus_db(BUS_SFX),
 			String(BUS_MUSIC): bus_db(BUS_MUSIC),
 		},
+		"ambience_cutoff": ambience_cutoff(),
 		"2d_voices": active_2d_voices(),
 		"polyphony_2d": POLY_2D,
 		"3d_voices": active_3d_voices(),

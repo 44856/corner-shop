@@ -125,6 +125,66 @@ static func radio() -> AudioStreamWAV:
 	return s
 
 
+# ---------------------------------------------------------------- 雨声事件音
+
+## 雨棚边缘的一小簇滴水。单条素材自带「簇」的形态（2–4 滴、簇内 6–20ms），
+## 运行时再随机 pitch / 间隔，才不会变成等间隔的脉冲串 —— 第 3 版 213/s 的
+## 均匀泊松听起来像电流，这个教训在 docs/雨声环境音规格.md 里记着。
+static func drip() -> AudioStreamWAV:
+	if _cache.has("drip"):
+		return _cache["drip"]
+	var buf := _blank(0.20)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 0x5A17D21
+	var t := 0.0
+	var count := 2 + rng.randi_range(0, 2)
+	for i in count:
+		var fc := 1100.0 + rng.randf() * 1700.0
+		var q := 2.0 + rng.randf() * 2.0
+		var tau := 0.003 + rng.randf() * 0.004
+		_add_band_noise(buf, t, tau * 4.0 + 0.004, 1.0 / tau,
+				0.42 + rng.randf() * 0.25, fc, q, 0.0004 + rng.randf() * 0.0006)
+		t += 0.006 + rng.randf() * 0.014
+	# 低中频「水窝」只给最后一滴，每滴都给就成鼓点了。
+	_add_band_noise(buf, maxf(t - 0.004, 0.0), 0.045, 55.0, 0.18, 520.0, 1.6, 0.002)
+	var s := _to_wav(buf)
+	_cache["drip"] = s
+	return s
+
+
+## 排水沟 / 落水管的流水：压暗的宽带噪声，缓入缓出，没有可数的瞬态。
+## 和 drip 的区别是「连续」而不是「一颗一颗」，对应场景里那两条排水格栅。
+static func gutter() -> AudioStreamWAV:
+	if _cache.has("gutter"):
+		return _cache["gutter"]
+	var buf := _blank(1.1)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 0x6177E2
+	_add_band_noise(buf, 0.0, 1.05, 0.55, 0.30, 480.0, 1.1, 0.10)
+	_add_band_noise(buf, 0.02, 0.98, 0.75, 0.18, 1250.0, 1.4, 0.14)
+	# 几声低频「咕嘟」打散稳态，否则就是一段循环噪声。
+	for i in 5:
+		_add_band_noise(buf, 0.08 + rng.randf() * 0.82, 0.07, 34.0, 0.14,
+				260.0 + rng.randf() * 220.0, 2.2, 0.004)
+	var s := _to_wav(buf)
+	_cache["gutter"] = s
+	return s
+
+
+## 车压过积水：非对称包络（快起慢落）+ 低中频冲刷 + 迟一点的高频水花。
+## 不走多普勒：车的位置由 3D 发射器给，音效本身只负责「一团水被推开」。
+static func splash() -> AudioStreamWAV:
+	if _cache.has("splash"):
+		return _cache["splash"]
+	var buf := _blank(0.95)
+	_add_band_noise(buf, 0.0, 0.85, 3.6, 0.52, 340.0, 0.9, 0.030)
+	_add_band_noise(buf, 0.035, 0.55, 5.4, 0.30, 2600.0, 1.2, 0.012)
+	_add_band_noise(buf, 0.12, 0.42, 6.0, 0.16, 4300.0, 1.6, 0.020)
+	var s := _to_wav(buf)
+	_cache["splash"] = s
+	return s
+
+
 # ---------------------------------------------------------------- 合成
 
 static func _blank(seconds: float) -> PackedFloat32Array:
@@ -148,6 +208,48 @@ static func _add_noise(buf: PackedFloat32Array, start: float, dur: float,
 		var env := exp(-decay * t) * minf(1.0, t * 300.0)
 		lp = lerpf(lp, randf() * 2.0 - 1.0, 0.35)
 		buf[idx] += lp * env * gain
+
+
+## 带通噪声「拍打」：雨滴、铁皮、水花一律用它，绝不叠阻尼正弦。
+## 10-27 那轮「诡异的风铃声」就是拿正弦 + 非谐分音做金属落点的后果；
+## 宽带冲击没有音高，频谱图上是散点而不是横向亮线。
+## 系数是 RBJ bandpass（constant 0 dB peak gain），按 RATE 现算，不依赖外部滤波器库。
+static func _add_band_noise(buf: PackedFloat32Array, start: float, dur: float,
+		decay: float, gain: float, fc: float, q: float, attack: float) -> void:
+	var i0 := int(start * RATE)
+	var n := int(dur * RATE)
+	if n <= 0:
+		return
+	var w0 := TAU * fc / float(RATE)
+	var alpha := sin(w0) / (2.0 * maxf(q, 0.1))
+	var a0 := 1.0 + alpha
+	var b0 := alpha / a0
+	var b2 := -alpha / a0
+	var a1 := (-2.0 * cos(w0)) / a0
+	var a2 := (1.0 - alpha) / a0
+	var x1 := 0.0
+	var x2 := 0.0
+	var y1 := 0.0
+	var y2 := 0.0
+	# 升余弦 attack 去掉边沿的「咔」，尾部 0.5ms 淡出避免截断 click。
+	# 滤波器状态从 0 起，也不会在事件开头凭空塞进一个阶跃。
+	var atk := maxf(attack * float(RATE), 1.0)
+	var tail_n := maxf(0.0005 * float(RATE), 1.0)
+	for i in n:
+		var idx := i0 + i
+		if idx < 0 or idx >= buf.size():
+			break
+		var t := float(i) / float(RATE)
+		var a := clampf(float(i) / atk, 0.0, 1.0)
+		var env := exp(-decay * t) * (0.5 - 0.5 * cos(PI * a))
+		var tail := clampf((float(n) - float(i)) / tail_n, 0.0, 1.0)
+		var x0 := randf() * 2.0 - 1.0
+		var y0 := b0 * x0 + b2 * x2 - a1 * y1 - a2 * y2
+		x2 = x1
+		x1 = x0
+		y2 = y1
+		y1 = y0
+		buf[idx] += y0 * env * tail * gain
 
 
 ## 往缓冲里叠一个带衰减包络的正弦。

@@ -113,6 +113,12 @@ grep -rn "Store.build\|Store.layout" --include=*.gd scripts tools
 - **转场切声归 `SceneRouter`。** `goto()` 进转场时调 `AudioBus.cut_for_transition()`，
   旧场景的声道 / 一次性音效 / 3D 池一起收，切场景之前保持静音；新场景在 `_ready` 里重新申请。
   别在场景里自己停雨声来模拟转场。
+- **环境低通是全局状态，不是场景资源。** `Ambience` 总线上的 cutoff 由 `AudioBus` 运行时挂，
+  跨场景残留会让下一个场景一直发闷。新增有雨的场景必须在 `_setup_audio()` 里显式声明初始值，
+  并在 `_process` 里和音量档用同一个系数插值（见 `docs/音频总线.md` §2.1）。
+- **带语义的偶发雨声绝不进循环 wav。** 120s 是完美闭环，滴水 / 排水 / 过车压水一旦录进素材
+  就会每圈精确重播。它们走 `RainEvents` 的运行时随机触发 + `play_3d()` 固定池，
+  坐标从几何常量推（§6.6）。事件音用带通噪声，不用阻尼正弦——那会变成风铃。
 
 ### 渲染与材质
 
