@@ -3,8 +3,9 @@ extends Node
 ## 场景自己只负责触发（走到门口、按 E），不负责目的地。
 ## 连开场演出 opening_flow 也在落幕后走这里，代价是它要多等一段共享的字母屏。
 ##
-## 这里只做四件事：查路由、锁旧场景、播转场、把「从哪来、落在哪个 spawn」
-## 交给新场景。剧情、提示文案、禁用的理由全部不在这里判断。
+## 这里只做五件事：查路由、锁旧场景、切掉旧场景的声音、播转场、
+## 把「从哪来、落在哪个 spawn」交给新场景。剧情、提示文案、禁用的理由
+## 全部不在这里判断。
 
 const Links := preload("res://scripts/core/world_links.gd")
 const LetterTransition := preload("res://scripts/letter_transition.gd")
@@ -112,6 +113,11 @@ func goto(scene_id: StringName, spawn: StringName, opts: Dictionary = {}) -> boo
 
 	_arrival = _arrival_context(scene_id, spawn, opts)
 	_phase = Phase.LEAVING
+
+	# 加载屏期间不放旧场景的声音：雨、低频、一次性音效、3D 发射器一起收掉。
+	# 新场景的 _setup_audio() 在 change_scene 之后才跑，不会被这一刀误伤。
+	# 放在所有校验之后——被拒绝的 goto 不该改变任何状态，包括正在响的声音。
+	AudioBus.cut_for_transition()
 
 	var scene := get_tree().current_scene
 	if scene != null and scene.has_method("lock_for_transition"):

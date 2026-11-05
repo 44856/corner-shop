@@ -28,6 +28,7 @@ const Sfx := preload("res://scripts/sfx.gd")
 const K := preload("res://scripts/kit.gd")
 const CollisionLayout := preload("res://scripts/collision_layout.gd")
 const PortalHost := preload("res://scripts/core/portal_host.gd")
+const RainEvents := preload("res://scripts/audio/rain_events.gd")
 
 ## 出生点：东口牌楼内侧、北人行道上，面朝西。
 ## x 再往东 0.3m 就会落进「交番」交互点的半径里，开场提示会抢画面。
@@ -69,6 +70,11 @@ const EXPOSE_IN := 0.92
 ## 店内包围盒：和 store_walk 同一个数字，判定「在店里」用
 const INTERIOR := AABB(Vector3(-1.46, 0.0, -5.26), Vector3(5.52, 3.0, 4.12))
 
+## 进店后环境总线的低通截止。真实世界里「隔了一层」先丢高频、再丢响度，
+## 所以这里补的是音色变化，和下面 -12dB 的音量落差是两件事。
+## 1500Hz 留住雨的低中频体感，砍掉 2k 以上的「沙」；再低就成隔墙嗡鸣了。
+const CUTOFF_IN := 1500.0
+
 ## 开场：从牌楼内侧上方俯冲进第三人称。
 ## 不能再放在 x>30 —— 东口对面补了一堵背景楼，机位会被自己的布景挡死。
 ## 起始 FOV 比游戏内宽：2.6m 处要装下 4.9m 宽的招牌，46° 只能拍到字。
@@ -91,6 +97,7 @@ var _arrival: Dictionary = {}
 var _shadow: MeshInstance3D
 var _rain: AudioVoice
 var _hum: AudioVoice
+var rain_events: Node
 var _intro_cam: Camera3D
 var _intro_tween: Tween
 
@@ -236,11 +243,19 @@ func _setup_portals() -> void:
 
 
 func _setup_audio() -> void:
-	# 声道名跨场景固定：走进商店街 / 加油站时同名申请会接管，雨声不会重启成两层。
+	# 声道名跨场景固定：同名申请会接管还在淡出的旧声道，雨声不会叠成两层。
+	#
+	# 但「接管」的无缝续播只对同一个 stream 成立（AudioBus.channel 比的是 source）。
+	# 商店街和加油站各用一条自己的 120s 雨声，同一套三层骨架（风涌 / 雨幕 / 雨滴）的两个场地变体。
+	# 跨这两个场景时是换带不是续播，听不出来是因为中间隔着整块黑卡转场；
+	# 进店（store_walk）换回闷版的 rain_loop.wav 本来就是想要的听觉变化。
 	# owner 绑场景根，场景卸载时由 AudioBus 负责淡出，不用自己 stop。
-	_rain = AudioBus.channel(&"rain", load("res://audio/rain_loop.wav"), {
+	_rain = AudioBus.channel(&"rain", load("res://audio/street_rain_loop.wav"), {
 		"bus": AudioBus.BUS_AMBIENCE,
-		"db": -14.0,
+		# 素材按 EBU R128 的 -23 LUFS 出母版，所以这一档比早期（-16.9 LUFS）高 6dB，
+		# 有效电平仍是 -35.5 LUFS，玩家听到的响度没变。
+		# 想要"雨大一点/小一点"就动这一档，不要去削素材。
+		"db": -12.5,
 		"owner": self,
 	})
 	_hum = AudioBus.channel(&"hum", load("res://audio/drone_loop.wav"), {
@@ -248,6 +263,52 @@ func _setup_audio() -> void:
 		"db": -38.0,
 		"owner": self,
 	})
+
+	# 总线滤波是跨场景的全局状态，每个场景都要在 _ready 里声明自己那档。
+	# 转场时 AudioBus 会复位，靠上一个场景留下的值会随机变闷。
+	AudioBus.set_ambience_cutoff(AudioBus.AMBIENCE_CUTOFF_OPEN)
+
+	rain_events = RainEvents.new()
+	rain_events.name = "RainEvents"
+	add_child(rain_events)
+	rain_events.bind(player, rain_event_points())
+
+
+## 雨声事件发射点。坐标全部从几何常量推，改雨棚时声音跟着走，不另抄一份。
+func rain_event_points() -> Array:
+	var out: Array = []
+	# 两侧雨棚外缘：北侧朝街的是 z1，南侧朝街的是 z0。
+	for a in ShopRow.AWNINGS:
+		var x0 := float(a["x0"])
+		var x1 := float(a["x1"])
+		var h := float(a["h"])
+		var z_edge := float(a["z1"]) if float(a["z1"]) < 0.0 else float(a["z0"])
+		for k in 2:
+			out.append({
+				"pos": Vector3(lerpf(x0 + 0.35, x1 - 0.35, 0.25 + 0.5 * float(k)),
+						h - 0.35, z_edge),
+				"kind": &"drip",
+				"lo": 1.4, "hi": 5.0, "db": -24.0,
+			})
+	# 便利店雨棚：和 Town.rain_covers() 里 x0 -1.76 / x1 4.36 / z1 0.2 对齐。
+	for k in 3:
+		out.append({
+			"pos": Vector3(-1.2 + float(k) * 2.5, 2.3, 0.32),
+			"kind": &"drip",
+			"lo": 1.1, "hi": 4.2, "db": -21.0,
+		})
+	# 东侧后巷：排水管下方一条慢速流水，稀疏到只作为「这里有水在走」的暗示。
+	out.append({
+		"pos": Vector3(4.8, 0.3, -3.0),
+		"kind": &"gutter", "lo": 7.0, "hi": 16.0, "db": -27.0,
+	})
+	# 车行道：偶尔一辆车压过积水。三处错开，别让「车」变成定时事件。
+	for x in [8.0, 18.0, 27.0]:
+		out.append({
+			"pos": Vector3(float(x), 0.12, 3.4),
+			"kind": &"splash", "lo": 9.0, "hi": 24.0, "db": -25.0,
+		})
+	return out
 
 
 # ---------------------------------------------------------------- 西口
@@ -388,13 +449,21 @@ func _process(delta: float) -> void:
 	if zone != _zone:
 		_on_zone_changed(zone)
 
-	# 雨声：街上比店里响一档；店里的低频压缩机声更近
-	var rain_db := -26.0 if _inside else -14.0
+	# 雨声：街上比店里响一档；店里的低频压缩机声更近。
+	# 街上 -12.5 / 店里 -24.5 仍是 12dB 落差。
+	# 环境低通和音量共用同一个指数系数：音量和音色一起变，
+	# 才不会「先闷了半秒才变轻」。
+	var rain_db := -24.5 if _inside else -12.5
 	var hum_db := -24.0 if _inside else -38.0
+	var cutoff := CUTOFF_IN if _inside else AudioBus.AMBIENCE_CUTOFF_OPEN
+	var blend := 1.0 - exp(-1.6 * delta)
+	AudioBus.set_ambience_cutoff(lerpf(AudioBus.ambience_cutoff(), cutoff, blend))
 	if _rain != null:
-		_rain.volume_db = lerpf(_rain.volume_db, rain_db, 1.0 - exp(-1.6 * delta))
+		_rain.volume_db = lerpf(_rain.volume_db, rain_db, blend)
 	if _hum != null:
-		_hum.volume_db = lerpf(_hum.volume_db, hum_db, 1.0 - exp(-1.6 * delta))
+		_hum.volume_db = lerpf(_hum.volume_db, hum_db, blend)
+	if rain_events != null:
+		rain_events.advance(delta)
 
 
 ## 公开给探针：当前区域。不要读 _zone。
