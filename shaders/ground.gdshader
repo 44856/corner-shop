@@ -69,6 +69,12 @@ uniform float marble_half_w = 138.0;
 // 1 = 会铺装（玩法地面）；0 = 只铺土（远景地面，那里不需要算石板）
 uniform float paving_amount = 1.0;
 
+// ---- 城内路网
+// 城门直道（沿 x=0）与十字路（沿 z=cross_z）在铺装区内压出两条比广场暗一档的路。
+// 不压的话进城之后全是同一种石板，看不出「街」和「广场」的区别。
+uniform float street_half = 9.0;
+uniform float cross_z = 465.0;
+
 varying vec3 wpos;
 
 
@@ -230,7 +236,26 @@ void fragment() {
 			mb = mix(mb * mdark, mb, mjoint);             // 板缝（同样随距离衰减）
 
 			vec3 pave_col = mix(flag, mb, marble);
+
+			// ---------- 城内路网 ----------
+			// 一条贯城直道（沿 z，穿过 x=0）+ 一条十字路（沿 x，在 z=cross_z）。
+			// 用比广场暗一档的方石，并且把大理石也压掉 —— 街道不铺抛光石头，
+			// 否则雨天反光会把整条街变成镜面。
+			float sx = 1.0 - smoothstep(street_half - 2.0, street_half, abs(p.x));
+			float sz = 1.0 - smoothstep(street_half - 2.0, street_half,
+				abs(p.y - cross_z));
+			float street = max(sx, sz) * paved;
+			vec3 street_col = mix(flag_a.rgb, flag_b.rgb, 0.35);
+			street_col *= 0.94 + 0.10 * vnoise(p * 1.3);
+			// 路中心再压一道浅色中缝，远看像铺路时对齐的那条基准线
+			street_col = mix(street_col, flag_a.rgb * 1.10,
+				smoothstep(0.55, 0.0, abs(p.x)) * sx * 0.25);
+			pave_col = mix(pave_col, street_col, street * 0.82);
+
 			col = mix(col, pave_col, paved);
+
+			// 街道上不保留大理石的高光
+			marble *= 1.0 - street * 0.9;
 
 			// 大理石抛光，方石和土面哑光。SPECULAR 靠 render_mode 开了才有意义，
 			// 所以这个 shader 不能用 specular_disabled。

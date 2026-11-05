@@ -19,8 +19,9 @@ const PlayerController := preload("res://scripts/player_controller.gd")
 const Hud := preload("res://scripts/hud.gd")
 const Hub := preload("res://scripts/interaction_hub.gd")
 const Sfx := preload("res://scripts/sfx.gd")
-const LetterTransition := preload("res://scripts/letter_transition.gd")
 const GasStationStory := preload("res://scripts/gas_station_story.gd")
+const PortalHost := preload("res://scripts/core/portal_host.gd")
+const RainEvents := preload("res://scripts/audio/rain_events.gd")
 
 ## 场地范围。0 是西缘，30 是东缘；国道沿 X 穿过，z 0..4 是车行道。
 const X0 := 0.0
@@ -41,6 +42,11 @@ const CANOPY_Z0 := 6.1
 const CANOPY_Z1 := 11.9
 const CANOPY_TOP := 5.16
 
+## 顶棚下的环境低通：不是「更闷」，是「远处的雨被铁皮挡住了」。
+## 收掉 8k 以上的沙，保留 1–3kHz 的铁皮敲击与近场雨滴；
+## 顶棚下的辨识度靠事件层（檐口滴水 / 排水沟），不靠把整条雨推远。
+const CUTOFF_CANOPY := 7000.0
+
 ## 小卖亭
 const KIOSK_X0 := 2.3
 const KIOSK_X1 := 6.9
@@ -52,7 +58,24 @@ const KIOSK_TOP := 3.52
 ## 离回程触发线 1.5m —— 出生即触发的话，转场会来回弹。
 const SPAWN := Vector3(27.0, WALK_Y + 0.01, -1.05)
 const RETURN_X := 28.55
-const TOWN_SCENE := "res://scenes/hoshi_street.tscn"
+
+## 场景路由登记。目的地不在这里，在 scripts/core/world_links.gd。
+## default 与 east_sidewalk 现在落点相同：前者给「直接进站」留的口，
+## 后者才是从商店街走过来的正式 spawn 名。
+const SCENE_ID := &"gas_station"
+const SPAWNS := {
+	&"default": {"pos": SPAWN, "face": -PI * 0.5, "cam_yaw": 90.0},
+	&"east_sidewalk": {"pos": SPAWN, "face": -PI * 0.5, "cam_yaw": 90.0},
+}
+## 回程有两条路：北人行道走到东缘（走路触发），或按 E 让路牌带你回去。
+## 两者共用同一个出口，所以禁用一次就同时消失。
+const PORTALS := [
+	{"id": &"east_exit", "triggers": [
+		{"kind": "walk", "rect": Rect2(RETURN_X, Z0, X1 - RETURN_X, ROAD_Z0 - Z0)},
+		{"kind": "interact", "pos": Vector3(28.75, 1.2, -0.2), "radius": 1.7,
+			"prompt": "回星见町商店街"},
+	]},
+]
 
 ## 开阔地没有墙替你把镜头顶近：5.4m 的远景会让人物缩在画面中央。
 ## 收到 4.4m、支点降到胸口，保留街道的肩后视角，人物占比接近商店街。
@@ -61,24 +84,30 @@ const CAM := {"dist": 4.4, "height": 1.45, "fov": 52.0, "shoulder": 0.30}
 var player: CharacterBody3D
 var hud
 var hub
+var portals
 var env: Environment
 var moon: DirectionalLight3D
 var fill: DirectionalLight3D
 var story
 
 var _zone := "walk"
-var _transitioning := false
-var _arriving := false
+## SceneRouter 在 _ready 里交给本场景的「我是怎么来的」。取一次就清空。
+var _arrival: Dictionary = {}
 var _shooting := false
 var _seen_forecourt := false
 var _audio_override := false
-var _rain: AudioStreamPlayer
-var _hum: AudioStreamPlayer
+var _rain: AudioVoice
+var _hum: AudioVoice
+var rain_events: Node
 
 
 func _ready() -> void:
-	# 转场层还挂在 root 上 = 我们是被转场送过来的，开场黑幕由它负责淡出。
-	_arriving = get_tree().root.has_node("LetterTransition")
+	# 到达上下文必须最先取走：_setup_player 要用它决定落点。
+	SceneRouter.bind_scene(SCENE_ID)
+	_arrival = SceneRouter.consume_arrival()
+	if not _arrival.is_empty() and not _is_arrival():
+		push_warning("GasStation: 到达上下文属于 %s，不是本场景" % _arrival.get("to_scene", &""))
+		_arrival.clear()
 
 	var world := WorldEnv.build(self, {
 		"fog_length": 58.0,
@@ -112,6 +141,7 @@ func _ready() -> void:
 	_setup_player()
 	_setup_hud()
 	_setup_interactions()
+	_setup_portals()
 	_setup_audio()
 
 	if "--shot" in OS.get_cmdline_user_args():
@@ -121,10 +151,21 @@ func _ready() -> void:
 		return
 
 	_setup_story()
-	if _arriving:
+	if _is_arrival():
 		_on_arrival()
 	else:
 		_show_first_frame()
+
+
+func _is_arrival() -> bool:
+	return _arrival.get("to_scene", &"") == SCENE_ID
+
+
+func _spawn_data() -> Dictionary:
+	var key: StringName = &"default"
+	if _is_arrival():
+		key = _arrival.get("spawn", &"default")
+	return SPAWNS.get(key, SPAWNS[&"default"])
 
 
 # ---------------------------------------------------------------- 地面
@@ -1241,9 +1282,13 @@ func _ripples() -> Array:
 func _setup_player() -> void:
 	player = PlayerController.new()
 	player.name = "Player"
-	player.position = SPAWN
 	# 相机在 +X 侧、看向 −X：从商店街出来继续往西
-	player.start_yaw_deg = 90.0
+	var spawn := _spawn_data()
+	var pos: Vector3 = spawn.get("pos", SPAWN)
+	var face: float = float(spawn.get("face", -PI * 0.5))
+	var cam_yaw: float = float(spawn.get("cam_yaw", 90.0))
+	player.position = pos
+	player.start_yaw_deg = cam_yaw
 	player.capture_mouse_on_start = false
 	player.actor_tint = Color(0.54, 0.57, 0.68)
 	player.actor_shade_floor = 0.35
@@ -1253,7 +1298,7 @@ func _setup_player() -> void:
 	player.cam_height = CAM["height"]
 	add_child(player)
 	player.input_locked = true
-	player.face(-PI * 0.5)
+	player.face(face)
 	player.set_camera_profile(CAM["dist"], CAM["height"], CAM["fov"],
 		CAM["shoulder"], 6.0)
 
@@ -1281,12 +1326,15 @@ func _setup_interactions() -> void:
 	hub.add_target(Vector3(7.65, 0.9, 6.75), 1.4, "给轮胎打气", _on_air)
 	hub.add_target(Vector3(26.4, 1.5, 5.2), 2.0, "看看油价", _on_price)
 	hub.add_target(Vector3(7.9, 1.1, 11.35), 1.5, "买一罐热咖啡", _on_vending)
-	# 逢魔时之后旧世界线已经收束，路牌上的「回商店街」不再生效。
-	hub.add_target(Vector3(28.75, 1.2, -0.2), 1.7, "回星见町商店街", _on_back, _can_return)
+	# 回商店街的路牌由 PortalHost 按 PORTALS 注册：逢魔时之后路由表会禁用整个出口，
+	# 提示随之消失，而不是留一个按了没反应的按钮。
 
 
-func _can_return() -> bool:
-	return story == null or story.return_allowed()
+func _setup_portals() -> void:
+	portals = PortalHost.new()
+	portals.name = "PortalHost"
+	add_child(portals)
+	portals.bind(SCENE_ID, PORTALS, player, hud, hub)
 
 
 func _setup_story() -> void:
@@ -1299,33 +1347,76 @@ func _setup_story() -> void:
 
 
 func _setup_audio() -> void:
-	_rain = _looping_player("res://audio/rain_loop.wav", -14.0)
-	_hum = _looping_player("res://audio/drone_loop.wav", -38.0)
+	# 声道名跨场景固定：同名申请会接管还在淡出的旧声道，雨声不会叠成两层。
+	#
+	# 「接管」的无缝续播只对同一个 stream 成立（AudioBus.channel 比的是 source）。
+	# 加油站用的是自己那条 120s 雨声：同一套三层骨架，雨滴更密、空间尾更长
+	# （顶棚把声音挡回来），和商店街版是两种东西。跨场景是换带不是续播——
+	# 中间隔着黑卡转场，换带听不出来。
+	# owner 绑场景根，场景卸载时由 AudioBus 负责淡出，不用自己 stop。
+	_rain = AudioBus.channel(&"rain", load("res://audio/gas_station_rain_loop.wav"), {
+		"bus": AudioBus.BUS_AMBIENCE,
+		# 与商店街同一档：素材是 -23 LUFS 母版，这一档换算后有效电平仍是 -35.5。
+		"db": -12.5,
+		"owner": self,
+	})
+	_hum = AudioBus.channel(&"hum", load("res://audio/drone_loop.wav"), {
+		"bus": AudioBus.BUS_AMBIENCE,
+		"db": -38.0,
+		"owner": self,
+	})
+
+	AudioBus.set_ambience_cutoff(AudioBus.AMBIENCE_CUTOFF_OPEN)
+	rain_events = RainEvents.new()
+	rain_events.name = "RainEvents"
+	add_child(rain_events)
+	rain_events.bind(player, rain_event_points())
 
 
-## 剧情死亡时把环境声一起收掉。只暴露这一个入口，不让剧情去读 _rain / _hum：
-## 那两个节点是私有的，换个命名、加一层容器就会静默失效。
+## 发射点全部对应场景里真实存在的结构：顶棚檐口、两条排水沟、两根落水管、
+## 国道上的积水。视觉把「雨被顶棚切开」做出来了，声音不能还是一条全局立体声。
+func rain_event_points() -> Array:
+	var out: Array = []
+	# 南北檐口各三个滴水点，挂在 4.6m 的檐沿上 —— 站在顶棚下能听见头顶在滴。
+	for z in [CANOPY_Z0, CANOPY_Z1]:
+		for k in 3:
+			var x := lerpf(CANOPY_X0 + 1.2, CANOPY_X1 - 1.2, 0.18 + 0.32 * float(k))
+			out.append({
+				"pos": Vector3(x, 4.6, float(z)),
+				"kind": &"drip", "lo": 1.0, "hi": 3.6, "db": -21.0,
+			})
+	# 两条线性排水沟（_drain_grate 的 cz），沿 x 各取两处。
+	for z in [5.85, 12.15]:
+		for k in 2:
+			out.append({
+				"pos": Vector3(CENTER_X - 3.4 + 6.8 * float(k), 0.22, float(z)),
+				"kind": &"gutter", "lo": 6.0, "hi": 14.0, "db": -26.0,
+			})
+	# 两根落水管的出水口：上面那片铁皮的雨最终都从这里出去。
+	for spec in [Vector3(10.45, 0.24, 6.84), Vector3(21.55, 0.24, 11.16)]:
+		out.append({
+			"pos": spec, "kind": &"gutter", "lo": 4.5, "hi": 11.0, "db": -24.0,
+		})
+	# 国道：偶尔一辆车压过积水，间隔比街上短一点（这里是国道）。
+	for x in [7.0, 22.0]:
+		out.append({
+			"pos": Vector3(float(x), 0.12, 2.0),
+			"kind": &"splash", "lo": 8.0, "hi": 20.0, "db": -25.0,
+		})
+	return out
+
+
+## 剧情死亡时把环境声一起收掉。只暴露这一个入口，不让剧情去拿声道句柄：
+## 句柄是私有的，换个命名、加一层容器就会静默失效。
 func fade_station_audio(seconds: float) -> void:
 	_audio_override = true
-	var tw := create_tween().set_parallel(true)
+	# 事件层也要停：雨声淡出之后还滴一滴水，听觉熄灭就被破坏了。
+	if rain_events != null:
+		rain_events.set_enabled(false)
 	if _rain != null:
-		tw.tween_property(_rain, "volume_db", -60.0, seconds)
+		_rain.fade_to(-60.0, seconds)
 	if _hum != null:
-		tw.tween_property(_hum, "volume_db", -60.0, seconds)
-
-
-func _looping_player(path: String, db: float) -> AudioStreamPlayer:
-	var p := AudioStreamPlayer.new()
-	var s := load(path) as AudioStreamWAV
-	if s != null:
-		s.loop_mode = AudioStreamWAV.LOOP_FORWARD
-		s.loop_begin = 0
-		s.loop_end = int(s.get_length() * float(s.mix_rate))
-		p.stream = s
-	p.volume_db = db
-	add_child(p)
-	p.play()
-	return p
+		_hum.fade_to(-60.0, seconds)
 
 
 # ---------------------------------------------------------------- 开场 / 转场
@@ -1346,25 +1437,24 @@ func _on_arrival() -> void:
 	hud.set_zone("加油站 · 人行道", true)
 	hud.toast("国道 17 号。雨被顶棚切开，加油站还亮着。", 4.5)
 
-	# 转场层还要 1s 才淡完 / 自毁。这段时间忽略回程触发，
+	# 转场层还要 1s 才淡完 / 自毁。这段时间忽略出口，
 	# 否则「落地 → 转身往东跑」会撞上一个尚未消失的转场层。
-	_transitioning = true
-	await get_tree().create_timer(1.2).timeout
-	_transitioning = false
+	portals.arm(1.2)
 
 
 ## 探针 / 调试用：跳过开场淡入。
 func skip_intro() -> void:
-	_arriving = false
 	hud.fade_in(0.0)
 	player.camera.current = true
 	player.input_locked = false
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
-## 转场开始后锁住当前场景。LetterTransition 也会调一次，重复调用无害。
+## 转场开始后锁住当前场景。SceneRouter 和 LetterTransition 各会调一次，重复调用无害。
 func lock_for_transition() -> void:
 	player.input_locked = true
+	if portals != null:
+		portals.enabled = false
 	if hub != null:
 		hub.enabled = false
 	if hud != null:
@@ -1386,22 +1476,20 @@ func _process(delta: float) -> void:
 	if zone != _zone:
 		_on_zone_changed(zone)
 
-	# 顶棚下只剩铁皮上的闷响，雨声要明显收一档。
+	# 顶棚下只剩铁皮上的闷响，雨声要明显收一档（-6dB，与街上同步下移）。
+	# 同时收掉远处的高频沙：站在棚下听见的是「铁皮被敲」，不是同一场雨变小。
 	# 死亡段由剧情接管音量，这里再往回拉会把「听觉熄灭」拉回去。
 	if not _audio_override:
-		var rain_db := -20.0 if zone == "canopy" else -14.0
+		var rain_db := -18.5 if zone == "canopy" else -12.5
+		var cutoff := CUTOFF_CANOPY if zone == "canopy" else AudioBus.AMBIENCE_CUTOFF_OPEN
+		var blend := 1.0 - exp(-1.6 * delta)
+		AudioBus.set_ambience_cutoff(lerpf(AudioBus.ambience_cutoff(), cutoff, blend))
 		if _rain != null:
-			_rain.volume_db = lerpf(_rain.volume_db, rain_db, 1.0 - exp(-1.6 * delta))
+			_rain.volume_db = lerpf(_rain.volume_db, rain_db, blend)
 		if _hum != null:
-			_hum.volume_db = lerpf(_hum.volume_db, -38.0, 1.0 - exp(-1.6 * delta))
-
-	# 往东走过路牌就回商店街。只认北侧人行道：前场东缘也在 x > RETURN_X，
-	# 不加 z 条件的话，人在油站里绕到东边就会被莫名其妙地送走。
-	# 出生点在触发线以西 1.55m，落地不会立刻反弹。
-	if not _transitioning and not _shooting and not player.input_locked \
-			and p.x > RETURN_X and p.z < ROAD_Z0 \
-			and (story == null or not story.blocks_return()):
-		_go_shotengai()
+			_hum.volume_db = lerpf(_hum.volume_db, -38.0, blend)
+	if rain_events != null:
+		rain_events.advance(delta)
 
 
 func zone() -> String:
@@ -1435,27 +1523,6 @@ func _on_zone_changed(zone: String) -> void:
 		hud.toast("汽油、湿沥青和铁皮上的雨。顶棚下面比外面安静一半。", 4.5)
 
 
-func _go_shotengai() -> void:
-	if _transitioning:
-		return
-	if story != null and story.blocks_return():
-		return
-	# 先看层在不在，再锁人：层还在时锁了再返回，会把人卡在输入锁里。
-	if get_tree().root.has_node("LetterTransition"):
-		return
-
-	_transitioning = true
-	lock_for_transition()
-
-	var tr := LetterTransition.new()
-	tr.name = "LetterTransition"
-	tr.title_text = "HOSHIMI"
-	tr.subtitle_text = "SHOTENGAI"
-	tr.footer_text = "WEST GATE · 00:07"
-	get_tree().root.add_child(tr)
-	tr.play(TOWN_SCENE)
-
-
 # ---------------------------------------------------------------- 交互回调
 
 func _on_pump() -> void:
@@ -1482,22 +1549,8 @@ func _on_vending() -> void:
 	hud.toast("热咖啡落进取物口，罐身烫手。自动门里飘出一点关东煮的味道。", 4.2)
 
 
-func _on_back() -> void:
-	_go_shotengai()
-
-
 func _play_at(pos: Vector3, stream: AudioStream, db: float = -6.0) -> void:
-	if stream == null:
-		return
-	var p := AudioStreamPlayer3D.new()
-	p.stream = stream
-	p.position = pos
-	p.volume_db = db
-	p.unit_size = 3.0
-	p.max_distance = 14.0
-	add_child(p)
-	p.finished.connect(p.queue_free)
-	p.play()
+	AudioBus.play_3d(stream, pos, {"db": db})
 
 
 # ---------------------------------------------------------------- 截图
@@ -1511,6 +1564,7 @@ func _only_shot() -> String:
 
 func _take_shots() -> void:
 	_shooting = true
+	portals.enabled = false
 	player.input_locked = false
 	hub.enabled = false
 	hud.fade_in(0.0)

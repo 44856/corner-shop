@@ -20,13 +20,23 @@ cd "$ROOT" || exit 1
 
 GODOT="$(godot_bin_or_die)"
 
-if [ ! -d "$ROOT/.godot" ]; then
-	echo "首次运行：先导入资源（约 1 分钟，之后会走缓存）"
+# .godot 存在不等于可用：class_name 的注册表（global_script_class_cache.cfg）
+# 只在 --editor 启动时重建，而 CI 会整包还原旧的 .godot（缓存 key 不含 scripts/）。
+# 新增一个 class_name 之后，缓存里没有这条，probe 就会报
+# 「Could not find type XXX in the current scope」—— 本地因为刚开过编辑器永远复现不了。
+# 用 .gd 内容哈希做标记：对不上就重新导入，让导入自己刷新类缓存。
+SCRIPTS_HASH="$(find "$ROOT/scripts" "$ROOT/tools" -name '*.gd' -type f -print0 \
+	| sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)"
+STAMP="$ROOT/.godot/gd_scripts_hash"
+
+if [ ! -d "$ROOT/.godot" ] || [ ! -f "$STAMP" ] || [ "$(cat "$STAMP")" != "$SCRIPTS_HASH" ]; then
+	echo "导入资源 / 刷新全局类缓存"
 	"$GODOT" --headless --path "$ROOT" --editor --quit >/tmp/godot_import.log 2>&1
 	if [ $? -ne 0 ]; then
 		echo "导入失败，日志：/tmp/godot_import.log" >&2
 		exit 1
 	fi
+	echo "$SCRIPTS_HASH" >"$STAMP"
 fi
 
 PROBES=()

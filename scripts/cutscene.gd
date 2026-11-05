@@ -20,9 +20,12 @@ var _ui: CanvasLayer
 var _sub: Label
 var _title: Label
 var _flash: ColorRect
-var _rain_player: AudioStreamPlayer
-var _thunder_player: AudioStreamPlayer
-var _drone_player: AudioStreamPlayer
+var _rain_stream: AudioStream
+var _drone_stream: AudioStream
+var _thunder_stream: AudioStream
+var _rain: AudioVoice
+var _drone: AudioVoice
+var _thunder: AudioVoice
 var _aborted := false
 
 
@@ -148,8 +151,10 @@ func _freeze_rain() -> void:
 	var rain := _main.get_node_or_null("Rain") as GPUParticles3D
 	if rain != null:
 		rain.speed_scale = 0.0
-	if _rain_player != null:
-		_rain_player.stop()
+	# 用 stop_channel 而不是 voice.stop：循环声道停下来后不会自己从表里消失，
+	# 留一个「已停止的循环声道」会让之后同名的场景声道误接管。
+	AudioBus.stop_channel(&"cutscene.rain", 0.0)
+	_rain = null
 	# 雨声一断就用低频底噪填住，不留绝对静音
 	_start_drone()
 
@@ -203,61 +208,39 @@ func _desaturate() -> void:
 # ---------------------------------------------------------------- 声音
 
 func _build_audio() -> void:
-	var rain := load("res://audio/rain_loop.wav") as AudioStreamWAV
-	if rain != null:
-		rain.loop_mode = AudioStreamWAV.LOOP_FORWARD
-		rain.loop_begin = 0
-		rain.loop_end = int(rain.get_length() * float(rain.mix_rate))
-		_rain_player = AudioStreamPlayer.new()
-		_rain_player.stream = rain
-		_rain_player.volume_db = -60.0
-		add_child(_rain_player)
-
-	var th := load("res://audio/thunder.wav") as AudioStreamWAV
-	if th != null:
-		_thunder_player = AudioStreamPlayer.new()
-		_thunder_player.stream = th
-		_thunder_player.volume_db = -1.0
-		add_child(_thunder_player)
-
-	var dr := load("res://audio/drone_loop.wav") as AudioStreamWAV
-	if dr != null:
-		dr.loop_mode = AudioStreamWAV.LOOP_FORWARD
-		dr.loop_begin = 0
-		dr.loop_end = int(dr.get_length() * float(dr.mix_rate))
-		_drone_player = AudioStreamPlayer.new()
-		_drone_player.stream = dr
-		_drone_player.volume_db = -60.0
-		add_child(_drone_player)
+	# 循环交给 AudioBus 复制流时去设：load() 拿回的是资源缓存里的同一份 WAV，
+	# 在这里改 loop_mode 会把所有用同一份雨声的地方一起改掉。
+	_rain_stream = load("res://audio/rain_loop.wav")
+	_drone_stream = load("res://audio/drone_loop.wav")
+	_thunder_stream = load("res://audio/thunder.wav")
 
 
 ## 雨停后的沉闷底噪。雨声被掐断后不能留绝对静音，
 ## 否则观众会怀疑音频断了；用低频拍频填住，压迫感反而更强。
 func _start_drone() -> void:
-	if _drone_player == null:
-		return
-	_drone_player.volume_db = -60.0
-	_drone_player.play()
-	var tw := create_tween().set_trans(Tween.TRANS_SINE)
-	tw.tween_property(_drone_player, "volume_db", -11.0, 1.6)
+	_drone = AudioBus.channel(&"cutscene.drone", _drone_stream, {
+		"bus": AudioBus.BUS_AMBIENCE,
+		"db": -60.0,
+		"owner": self,
+	})
+	if _drone != null:
+		_drone.fade_to(-11.0, 1.6)
 
 
 func _stop_audio(dur: float) -> void:
-	var tw := create_tween().set_parallel(true).set_trans(Tween.TRANS_SINE)
-	if _drone_player != null and _drone_player.playing:
-		tw.tween_property(_drone_player, "volume_db", -60.0, dur)
-	if _rain_player != null and _rain_player.playing:
-		tw.tween_property(_rain_player, "volume_db", -60.0, dur)
+	AudioBus.fade_channel(&"cutscene.drone", -60.0, dur)
+	AudioBus.fade_channel(&"cutscene.rain", -60.0, dur)
 
 
 ## 从黑场淡入雨声
 func _start_rain() -> void:
-	if _rain_player == null:
-		return
-	_rain_player.volume_db = -60.0
-	_rain_player.play()
-	var tw := create_tween()
-	tw.tween_property(_rain_player, "volume_db", -9.0, 2.0)
+	_rain = AudioBus.channel(&"cutscene.rain", _rain_stream, {
+		"bus": AudioBus.BUS_AMBIENCE,
+		"db": -60.0,
+		"owner": self,
+	})
+	if _rain != null:
+		_rain.fade_to(-9.0, 2.0)
 
 
 ## 雷光 + 雷声。先闪，稍晚才响 —— 声音比光慢，这一下会让画面立刻变真。
@@ -273,9 +256,9 @@ func _lightning() -> void:
 
 
 func _play_thunder() -> void:
-	if _aborted or _thunder_player == null:
+	if _aborted:
 		return
-	_thunder_player.play()
+	_thunder = AudioBus.play_2d(_thunder_stream, {"db": -1.0, "priority": 4})
 
 
 # ---------------------------------------------------------------- UI
@@ -419,8 +402,12 @@ func _cleanup() -> void:
 	# 动画结束后把 UI 和声音收掉，交还场景（相机是自由轨道，玩家可以自己转）
 	if _ui != null:
 		_ui.visible = false
-	for p in [_rain_player, _thunder_player, _drone_player]:
-		if p != null:
-			p.stop()
+	# 立即停：cleanup 之后场景随时可能被释放，淡出会卡在半路。
+	AudioBus.stop_channel(&"cutscene.rain", 0.0)
+	AudioBus.stop_channel(&"cutscene.drone", 0.0)
+	if _thunder != null:
+		_thunder.stop()
+	_rain = null
+	_drone = null
 	_main.set("roll", 0.0)       # 把画面扳正，否则交还场景后一直是歪的
 	set_process_unhandled_input(false)

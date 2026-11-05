@@ -9,7 +9,7 @@ extends Node
 ##   - 国道的 16cm 路缘靠隐形斜面能走上去（没有自动上台阶）；
 ##   - 顶棚下的提示与区域判定用的是同一套坐标。
 ##
-## 最后一条是转场契约：root 上挂着 LetterTransition 时，场景必须
+## 最后一条是转场契约：SceneRouter 里有指向本场景的到达上下文时，场景必须
 ## 跳过自己的黑场并直接解锁输入 —— 否则「转场淡出 → 又黑一下」。
 
 var world: Node3D
@@ -24,10 +24,13 @@ func _ready() -> void:
 	# 等一帧再挂，否则下面的到达断言会因为没有转场层而假通过。
 	await get_tree().process_frame
 
-	# 模拟被转场送来：root 上先挂一个同名层，再实例化场景。
-	var overlay := CanvasLayer.new()
-	overlay.name = "LetterTransition"
-	get_tree().root.add_child(overlay)
+	# 模拟被转场送来：先登记来源与落点，再实例化场景。
+	# 旧版靠往 root 挂一个名叫 LetterTransition 的空层来暗示「有转场」，
+	# 那是在猜实现；到达上下文才是场景与路由之间的公开契约。
+	SceneRouter.bind_scene(&"hoshi_street")
+	SceneRouter.stage_arrival(&"gas_station", &"east_sidewalk",
+		{"via_portal": &"west_gate"})
+	_check("到达上下文已写入", SceneRouter.has_arrival())
 
 	world = (load("res://scenes/gas_station.tscn") as PackedScene).instantiate()
 	add_child(world)
@@ -36,7 +39,7 @@ func _ready() -> void:
 	_check("被转场送来时跳过自己的黑场（输入已解锁）", not world.player.input_locked)
 	_check("落点在东侧人行道、回程触发线以西",
 		world.player.global_position.x < 28.0 and absf(world.player.global_position.y - 0.17) < 0.08)
-	overlay.queue_free()
+	_check("场景取走到达上下文后清空", not SceneRouter.has_arrival())
 
 	world.skip_intro()
 	player = world.player
@@ -81,6 +84,7 @@ func _ready() -> void:
 	world.lock_for_transition()
 	_check("锁定后玩家不再接受输入", bool(world.player.input_locked))
 	_check("锁定后交互中枢停用", world.hub.enabled == false)
+	_check("锁定后出口停用", world.portals.enabled == false)
 
 	print("\n==== gas_station_probe: %d passed, %d failed ====" % [_pass, _fail])
 	get_tree().quit(1 if _fail > 0 else 0)

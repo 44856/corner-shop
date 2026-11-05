@@ -26,6 +26,7 @@ const Hub := preload("res://scripts/interaction_hub.gd")
 const Sfx := preload("res://scripts/sfx.gd")
 const TruckEvent := preload("res://scripts/truck_event.gd")
 const K := preload("res://scripts/kit.gd")
+const RainEvents := preload("res://scripts/audio/rain_events.gd")
 
 ## 出生点：人行道上、雨棚底下，正对店门
 const SPAWN := Vector3(0.35, 0.17, 0.95)
@@ -43,6 +44,10 @@ const EXPOSE_IN := 0.92
 ## 店内包围盒（判定「在店里」用）。东墙从 3.1 推到 4.30，休息室也在里面。
 const INTERIOR := AABB(Vector3(-1.46, 0.0, -5.26), Vector3(5.52, 3.0, 4.12))
 
+## 店内低通比商店街宽：这里用的 rain_loop.wav 本来就是 8s 的闷版素材，
+## 再压到 1500Hz 会闷两次，只剩嗡嗡。1900Hz 只补「隔着玻璃」那一层。
+const CUTOFF_IN := 1900.0
+
 ## 开场镜头的起点：原微缩场景的机位
 const ORBIT := {"yaw": 26.0, "pitch": 14.5, "dist": 17.0, "target": Vector3(0.0, 1.2, -0.95)}
 
@@ -57,8 +62,9 @@ var _inside := false
 var _zone := "side"
 var _shooting := false
 var _shadow: MeshInstance3D
-var _rain: AudioStreamPlayer
-var _hum: AudioStreamPlayer
+var _rain: AudioVoice
+var _hum: AudioVoice
+var rain_events: Node
 var _intro_cam: Camera3D
 var _intro_tween: Tween
 
@@ -197,8 +203,49 @@ func _setup_interactions() -> void:
 
 
 func _setup_audio() -> void:
-	_rain = _looping_player("res://audio/rain_loop.wav", -15.0)
-	_hum = _looping_player("res://audio/drone_loop.wav", -40.0)
+	# 声道名跨场景固定：走进商店街 / 加油站时同名申请会接管，雨声不会重启成两层。
+	# owner 绑场景根，场景卸载时由 AudioBus 负责淡出，不用自己 stop。
+	_rain = AudioBus.channel(&"rain", load("res://audio/rain_loop.wav"), {
+		"bus": AudioBus.BUS_AMBIENCE,
+		# 和商店街同一档：街/站那边的雨已经下移 3dB，这里不动的话进店反而更响。
+		# 店内用闷版 rain_loop.wav，落差靠 -18/-29 的 11dB 维持。
+		"db": -18.0,
+		"owner": self,
+	})
+	_hum = AudioBus.channel(&"hum", load("res://audio/drone_loop.wav"), {
+		"bus": AudioBus.BUS_AMBIENCE,
+		"db": -40.0,
+		"owner": self,
+	})
+
+	AudioBus.set_ambience_cutoff(AudioBus.AMBIENCE_CUTOFF_OPEN)
+	rain_events = RainEvents.new()
+	rain_events.name = "RainEvents"
+	add_child(rain_events)
+	rain_events.bind(player, rain_event_points())
+
+
+## 老场景只有一间店：雨棚前缘、西侧落水管、门前积水。
+## 坐标对齐 Store._awning() 的前缘板（x −1.75..4.35、z ≈ 0.2、高 2.45）。
+func rain_event_points() -> Array:
+	var out: Array = []
+	for x in [-1.0, 1.3, 3.6]:
+		out.append({
+			"pos": Vector3(float(x), 0.25, 0.28),
+			"kind": &"drip", "lo": 1.3, "hi": 4.6, "db": -22.0,
+		})
+	# 落水管出水口：雨棚上的水最终都从这里下来。
+	out.append({
+		"pos": Vector3(-1.42, 0.22, 0.25),
+		"kind": &"gutter", "lo": 5.5, "hi": 13.0, "db": -26.0,
+	})
+	# 门前车行道：偶尔一辆车压过积水。间隔给得长，别抢车祸事件的戏。
+	for x in [0.5, 3.5]:
+		out.append({
+			"pos": Vector3(float(x), 0.12, 2.7),
+			"kind": &"splash", "lo": 11.0, "hi": 27.0, "db": -27.0,
+		})
+	return out
 
 
 ## 马路车祸：独立节点，自己盯着「人是不是站在车行道上」
@@ -207,20 +254,6 @@ func _setup_truck_event() -> void:
 	truck_event.name = "TruckEvent"
 	add_child(truck_event)
 	truck_event.bind(player, hud)
-
-
-func _looping_player(path: String, db: float) -> AudioStreamPlayer:
-	var p := AudioStreamPlayer.new()
-	var s := load(path) as AudioStreamWAV
-	if s != null:
-		s.loop_mode = AudioStreamWAV.LOOP_FORWARD
-		s.loop_begin = 0
-		s.loop_end = int(s.get_length() * float(s.mix_rate))
-		p.stream = s
-	p.volume_db = db
-	add_child(p)
-	p.play()
-	return p
 
 
 # ---------------------------------------------------------------- 开场
@@ -308,13 +341,19 @@ func _process(delta: float) -> void:
 
 	_update_shadow()
 
-	# 雨声跟着进出变化：进店之后只剩闷在玻璃外面的雨
-	var rain_db := -26.0 if _inside else -15.0
+	# 雨声跟着进出变化：进店之后只剩闷在玻璃外面的雨。
+	# 音量落差之外补一层音色落差，玻璃先吃掉的是高频，不是整体电平。
+	var rain_db := -29.0 if _inside else -18.0
 	var hum_db := -24.0 if _inside else -40.0
+	var cutoff := CUTOFF_IN if _inside else AudioBus.AMBIENCE_CUTOFF_OPEN
+	var blend := 1.0 - exp(-1.6 * delta)
+	AudioBus.set_ambience_cutoff(lerpf(AudioBus.ambience_cutoff(), cutoff, blend))
 	if _rain != null:
-		_rain.volume_db = lerpf(_rain.volume_db, rain_db, 1.0 - exp(-1.6 * delta))
+		_rain.volume_db = lerpf(_rain.volume_db, rain_db, blend)
 	if _hum != null:
-		_hum.volume_db = lerpf(_hum.volume_db, hum_db, 1.0 - exp(-1.6 * delta))
+		_hum.volume_db = lerpf(_hum.volume_db, hum_db, blend)
+	if rain_events != null:
+		rain_events.advance(delta)
 
 
 ## 三个区域：店内 / 人行道 / 车行道。
@@ -386,19 +425,9 @@ func _on_cat() -> void:
 	hud.toast("猫抬头看了你一眼，尾巴尖晃了两下，又趴回干燥的台阶上。", 4.2)
 
 
-## 一次性 3D 音源，播完自己回收
+## 一次性 3D 音效走全局池：不再每次「嗒」一声就生成/销毁一个播放器
 func _play_at(pos: Vector3, stream: AudioStream, db: float = -6.0) -> void:
-	if stream == null:
-		return
-	var p := AudioStreamPlayer3D.new()
-	p.stream = stream
-	p.position = pos
-	p.volume_db = db
-	p.unit_size = 3.0
-	p.max_distance = 14.0
-	add_child(p)
-	p.finished.connect(p.queue_free)
-	p.play()
+	AudioBus.play_3d(stream, pos, {"db": db})
 
 
 # ---------------------------------------------------------------- 截图

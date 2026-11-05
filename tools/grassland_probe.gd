@@ -12,6 +12,7 @@ extends Node
 ## 用它测会「怎么按都没反应」，很容易被误判成交互坏了。
 
 const SCENE := "res://scenes/grassland.tscn"
+const TownPlan := preload("res://scripts/town_plan.gd")
 
 var _pass := 0
 var _fail := 0
@@ -38,20 +39,26 @@ func _ready() -> void:
 
 	_check("HUD 已创建", _hud != null)
 	_check("交互中枢已创建", _hub != null)
-	# 交互点：狗 + 2 守卫 + 2 接待 + 2 块任务板 = 7
+	# 交互点：狗 1 + 每个 NPC 各 1（守卫 / 公会接待 / 店主都走这条）+ 公会两块任务板。
+	# 不写死总数：冒险者区每开一家店就多一个店主，写死的话每次开店都要回来改这条。
 	# 中枢没有公开的计数接口，这里直接读内部数组 —— 断言的是「数量对不对」，
 	# 不是「内部结构长什么样」，字段改名的时候这里一起改就行。
-	_check("注册了 7 个交互点（狗 + 2 守卫 + 2 接待 + 2 任务板）",
-		_hub.get("_targets").size() == 7)
+	_check("每个 NPC 各占一个交互点（狗 + %d NPC + 2 块任务板）" % _scene.guards.size(),
+		_hub.get("_targets").size() == _scene.guards.size() + 3)
 	_check("狗把按键与头顶提示交给了中枢", _dog.self_interaction == false)
 
 	# ---- 区域标签
+	# 3e13c6b 起，进城之后的区域名改由 TownPlan.zone_at() 按分区规划算：
+	# x = 0 落在主街上，所以 z=330 / z=440 都报「贯城大街」。
+	# 原来那两个点名（城门内 · 方石广场 / 广场 · 大理石）属于老的 z 轴分段，
+	# 已经被四个象限的分区取代，采样点没挪，只是地名变了。
 	await _zone_at(10.0, "草原")
 	await _zone_at(200.0, "官道")
-	await _zone_at(330.0, "城门内 · 方石广场")
-	await _zone_at(440.0, "广场 · 大理石")
-	# 公会不在这条 z 轴采样线上，单独判一次
-	_player.global_position = Vector3(-126.0, 0.05, 328.0)
+	await _zone_at(330.0, "贯城大街")
+	await _zone_at(440.0, "贯城大街")
+	# 公会不在主街上，单独判一次：站在世界中心（规划常量），
+	# 不再硬编码坐标 —— 3e13c6b 把公会从西南角搬到冒险者区并转 90°，硬编码那次就是这么断的
+	_player.global_position = Vector3(TownPlan.GUILD_CENTER.x, 0.05, TownPlan.GUILD_CENTER.z)
 	await get_tree().process_frame
 	await get_tree().process_frame
 	var guild_zone := String(_hud.get("_zone_chip").text)

@@ -4,8 +4,8 @@ extends CanvasLayer
 ## 挂在 get_tree().root 下面（不是当前场景），所以 change_scene_to_file 之后
 ## 它还活着，能继续把旧场景的黑场淡开、露出新场景。
 ##
-## 新场景用 get_tree().root.has_node("LetterTransition") 判断「我是不是被转场送来的」：
-## 是的话跳过自己的开场黑幕与运镜，否则会出现「转场淡出 → 新场景又黑一下」。
+## 新场景不认这个节点：SceneRouter 会在 play() 期间把 arrival 上下文交给它，
+## 场景据此跳过自己的开场黑幕与运镜，否则会出现「转场淡出 → 新场景又黑一下」。
 ##
 ## 主题不是随便挑的：这条路是雨夜国道，画面里出现的都是日本车站/加油站的
 ## 英文标识（NEXT STOP / SERVICE STATION / 24H），字距和等宽字体都按老式
@@ -109,9 +109,11 @@ func play(destination: String) -> void:
 
 	await get_tree().create_timer(0.4).timeout
 	if _destination != "":
-		get_tree().change_scene_to_file(_destination)
-		# change_scene_to_file 是延迟执行的：等两帧，新场景的 _ready 已跑完，
-		# 它才能看到本节点并据此跳过自己的开场。
+		var err := get_tree().change_scene_to_file(_destination)
+		if err != OK:
+			push_error("LetterTransition: 切换场景失败 %s（错误码 %d）" % [_destination, err])
+		# change_scene_to_file 是延迟执行的：等两帧，新场景的 _ready 已跑完并取走 arrival，
+		# SceneRouter 才能安全地清空上下文、宣布转场结束。
 		await get_tree().process_frame
 		await get_tree().process_frame
 
